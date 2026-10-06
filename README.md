@@ -39,7 +39,9 @@ file found there:
    then from `File`, and converted from `TicCharset` to the file system
    encoding. Copies that the mailer renamed because a file with the same
    name already existed are checked too: `file.zip.1` (binkd "postfix"
-   style) and `file.zi0` (binkd "extension" style).
+   style) and `file.zi0` (binkd "extension" style). Names are compared
+   with or without regard to case as `FileNamesCaseSensitive` says (by
+   default without on Windows and with elsewhere), on any file system.
 4. **Match.** A file matches if its CRC-32 equals `Crc` and, when the tic has
    a `Size`, its size equals `Size`. The first matching file is moved to
    `DestPath` together with the tic, and a renamed copy gets the name from
@@ -59,7 +61,7 @@ The age of a tic is based on its creation time where it is available
 
 Perl 5.16 or later with the following modules:
 
-- `Encode`, `Compress::Zlib`, `File::Copy`, `File::Spec`, `POSIX`
+- `Encode`, `Compress::Zlib`, `Cwd`, `File::Copy`, `File::Spec`, `POSIX`
   (part of standard Perl);
 - `Encode::Locale`;
 - `Win32::File` (Windows only).
@@ -76,9 +78,12 @@ perl ticmambo.pl [config]
 
 Without an argument, `ticmambo.cfg` next to the script is used. Copy
 [ticmambo.cfg.sample](ticmambo.cfg.sample), adjust the paths, and set
-`DestPath` as the inbound in your file echo processor's config. Run
-TicMambo after each mailer session or from a scheduler, before the file
-echo processor.
+`DestPath` as the inbound in your file echo processor's config.
+
+Run TicMambo right before the file echo processor, for example from the
+same script or scheduler job. Do not start it from a mailer that can run
+several sessions at once: TicMambo has no locking, and two copies running
+at the same time get in each other's way.
 
 The exit code is 0 after a normal run, and 1 if the config is invalid or
 the log file or the tic directory cannot be opened. Problems with
@@ -88,7 +93,11 @@ individual tics and files are logged and do not stop the run.
 
 All keywords are described in [ticmambo.cfg.sample](ticmambo.cfg.sample).
 Only `TicPath`, `DestPath` and, with the default `CorruptTicAction Move`,
-`CorruptTicPath` are required.
+`CorruptTicPath` are required. `DestPath` and `CorruptTicPath` must be
+different from `TicPath` and `FilesPath`.
+
+The config is read as UTF-8 or, if it is not valid UTF-8, in the system
+encoding (the ANSI code page on Windows).
 
 ## Logging
 

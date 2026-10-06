@@ -10,10 +10,10 @@
 #
 # Free software under the WTFPL, version 2. See COPYING.
 
-use strict;
+use 5.016;
 use warnings;
-use feature qw(fc);
 
+use Cwd qw(abs_path);
 use Encode qw(decode encode find_encoding);
 use Encode::Locale;
 use File::Spec;
@@ -27,28 +27,30 @@ require Win32::File if $IS_WIN;
 
 # Perl's stat has no birth time; on Linux it is available via statx(2).
 my $SYS_statx = $^O eq 'linux' && eval { require 'syscall.ph'; SYS_statx() };
+use constant { AT_FDCWD => -100, STATX_BTIME => 0x800, STX_BTIME_OFFSET => 80 };
+use constant LITTLE_ENDIAN => pack('L', 1) eq pack('V', 1);
 
 my %LEVELS = (error => 0, warn => 1, info => 2, debug => 3);
 
 # Keyword => [type, default]. Types: dir, path, bool, days, int, charset,
 # level, action.
 my %OPTIONS = (
-    TicPath              => ['dir',     undef],
-    FilesPath            => ['dir',     undef],
-    DestPath             => ['dir',     undef],
-    TicCharset           => ['charset', 'cp866'],
-    ForceCaseInsensitive => ['bool',    0],
-    UseCreationTime      => ['bool',    1],
-    WaitForFileDays      => ['days',    3],
-    DeleteOrphanTics     => ['bool',    0],
-    WaitForHiddenTicDays => ['days',    7],
-    TouchFiles           => ['bool',    0],
-    OverwriteExisting    => ['bool',    0],
-    MaxTicSize           => ['int',     65536],
-    CorruptTicAction      => ['action',  'move'],
-    CorruptTicPath        => ['dir',     undef],
-    LogFile              => ['path',    undef],
-    LogLevel             => ['level',   'info'],
+    TicPath                => ['dir',     undef],
+    FilesPath              => ['dir',     undef],
+    DestPath               => ['dir',     undef],
+    TicCharset             => ['charset', find_encoding('cp866')],
+    FileNamesCaseSensitive => ['bool',    $IS_WIN ? 0 : 1],
+    UseCreationTime        => ['bool',    1],
+    WaitForFileDays        => ['days',    3],
+    DeleteOrphanTics       => ['bool',    0],
+    WaitForHiddenTicDays   => ['days',    7],
+    TouchFiles             => ['bool',    0],
+    OverwriteExisting      => ['bool',    0],
+    MaxTicSize             => ['int',     65536],
+    CorruptTicAction       => ['action',  'move'],
+    CorruptTicPath         => ['dir',     undef],
+    LogFile                => ['path',    undef],
+    LogLevel               => ['level',   'info'],
 );
 
 my %cfg;
@@ -67,7 +69,7 @@ if (defined $cfg{LogFile}) {
         print STDERR "ticmambo: cannot open log file " . disp($cfg{LogFile}) . ": $!\n";
         exit 1;
     };
-    select((select($log_fh), $| = 1)[0]);
+    $log_fh->autoflush(1);
 }
 else {
     $log_fh = \*STDERR;
@@ -79,10 +81,13 @@ opendir(my $dh, $cfg{TicPath}) or do {
     logmsg('error', 'cannot read TicPath ' . disp($cfg{TicPath}) . ": $!");
     exit 1;
 };
-my @tics = sort grep { /\.tic\z/i } readdir $dh;
+my @tics;
+while (defined(my $e = readdir $dh)) {
+    push @tics, $e if $e =~ /\.tic\z/i;
+}
 closedir $dh;
 
-process_tic($_) for @tics;
+process_tic($_) for sort @tics;
 
 logmsg('debug', 'finished');
 exit 0;
@@ -90,25 +95,29 @@ exit 0;
 
 sub load_config {
     my ($file) = @_;
+    my $file_disp = disp($file);
 
-    open my $fh, '<:raw', $file or die "cannot open config " . disp($file) . ": $!\n";
+    open my $fh, '<:raw', $file or die "cannot open config $file_disp: $!\n";
     my $data = do { local $/; <$fh> } // '';
     close $fh;
-    $data =~ s/^\xEF\xBB\xBF//;
+    # UTF-8, or the system encoding if the config is not valid UTF-8.
+    my $text = eval { decode('UTF-8', $data, Encode::FB_CROAK | Encode::LEAVE_SRC) }
+        // decode(locale => $data);
+    $text =~ s/^\x{FEFF}//;
 
     my (%seen, $n);
-    for my $line (split /\r\n|\r|\n/, $data) {
+    for my $line (split /\r\n|\r|\n/, $text) {
         $n++;
         next if $line =~ /^\s*(?:[;#]|\z)/;
 
         my ($key, $value) = $line =~ /^\s*(\S+)\s*(.*?)\s*\z/;
         my ($name) = grep { lc $_ eq lc $key } keys %OPTIONS;
-        die "$file line $n: unknown keyword '$key'\n" unless defined $name;
-        die "$file line $n: no value for '$name'\n" unless length $value;
-        die "$file line $n: '$name' is set twice\n" if $seen{$name}++;
+        die "$file_disp line $n: unknown keyword '$key'\n" unless defined $name;
+        die "$file_disp line $n: no value for '$name'\n" unless length $value;
+        die "$file_disp line $n: '$name' is set twice\n" if $seen{$name}++;
 
         $cfg{$name} = parse_value($name, $value)
-            // die "$file line $n: invalid value '$value' for '$name'\n";
+            // die "$file_disp line $n: invalid value '$value' for '$name'\n";
     }
 
     for my $name (keys %OPTIONS) {
@@ -122,8 +131,17 @@ sub load_config {
     die "'CorruptTicPath' must be set when CorruptTicAction is Move\n"
         if $cfg{CorruptTicAction} eq 'move' && !defined $cfg{CorruptTicPath};
 
+    my %real;
     for my $name (grep { $OPTIONS{$_}[0] eq 'dir' && defined $cfg{$_} } keys %OPTIONS) {
         die "$name " . disp($cfg{$name}) . " is not a directory\n" unless -d $cfg{$name};
+        $real{$name} = disp(abs_path($cfg{$name}));
+        $real{$name} = fc $real{$name} if $IS_WIN;
+    }
+    # Files must not be moved to the directory they are taken from.
+    for my $to (grep { defined $real{$_} } qw(DestPath CorruptTicPath)) {
+        for my $from (qw(TicPath FilesPath)) {
+            die "$to must not be the same directory as $from\n" if $real{$to} eq $real{$from};
+        }
     }
 }
 
@@ -131,14 +149,14 @@ sub parse_value {
     my ($name, $value) = @_;
     my $type = $OPTIONS{$name}[0];
 
-    return $value if $type eq 'dir' || $type eq 'path';
+    return encode(locale_fs => $value) if $type eq 'dir' || $type eq 'path';
     if ($type eq 'bool') {
         return 1 if $value =~ /^yes\z/i;
         return 0 if $value =~ /^no\z/i;
         return undef;
     }
-    return $value =~ /^\d+\z/ ? $value + 0 : undef if $type eq 'days' || $type eq 'int';
-    return find_encoding($value) ? $value : undef if $type eq 'charset';
+    return $value =~ /^[0-9]+\z/ ? $value + 0 : undef if $type eq 'days' || $type eq 'int';
+    return find_encoding($value) if $type eq 'charset';
     return exists $LEVELS{lc $value} ? lc $value : undef if $type eq 'level';
     return $value =~ /^(?:move|delete|keep)\z/i ? lc $value : undef if $type eq 'action';
     die "internal error: unknown option type $type\n";
@@ -147,6 +165,8 @@ sub parse_value {
 sub logmsg {
     my ($level, $msg) = @_;
     return if $LEVELS{$level} > $LEVELS{$cfg{LogLevel}};
+    # Names from tics and from the disk may contain control characters.
+    $msg =~ s/([\x00-\x1f\x7f-\x9f])/sprintf '\\x%02X', ord $1/ge;
     printf $log_fh "%s [%-5s] %s\n", strftime('%Y-%m-%d %H:%M:%S', localtime), uc $level, $msg;
 }
 
@@ -178,13 +198,12 @@ sub birth_time {
     my ($path) = @_;
     return undef unless $SYS_statx;
 
-    use constant { AT_FDCWD => -100, STATX_BTIME => 0x800, STX_BTIME_OFFSET => 80 };
     my $buf = "\0" x 256;    # sizeof(struct statx)
     return undef if syscall($SYS_statx, AT_FDCWD, $path, 0, STATX_BTIME, $buf) != 0;
     return undef unless unpack('L', $buf) & STATX_BTIME;
-
-    # stx_btime.tv_sec is s64; unpacked in halves to work with 32-bit perls.
-    my ($lo, $hi) = unpack 'Ll', substr($buf, STX_BTIME_OFFSET, 8);
+    # stx_btime.tv_sec is a native s64, unpacked in halves for 32-bit perls.
+    my $sec = substr($buf, STX_BTIME_OFFSET, 8);
+    my ($lo, $hi) = LITTLE_ENDIAN ? unpack('Ll', $sec) : reverse unpack('lL', $sec);
     return $hi * 2**32 + $lo;
 }
 
@@ -209,51 +228,47 @@ sub process_tic {
     my $tic_path = File::Spec->catfile($cfg{TicPath}, $tic);
     my $tic_disp = disp($tic);
 
-    return unless is_regular($tic_path);
+    unless (is_regular($tic_path)) {
+        logmsg('debug', "$tic_disp is not a regular file, skipping");
+        return;
+    }
 
     if (is_hidden($tic_path) && age_days($tic_path) < $cfg{WaitForHiddenTicDays}) {
         logmsg('debug', "$tic_disp is hidden, skipping");
         return;
     }
 
-    my $size = -s _;
-    if ($size > $cfg{MaxTicSize}) {
-        return corrupt_tic($tic, "size $size exceeds MaxTicSize");
-    }
-
-    my $data = '';
     open my $fh, '<:raw', $tic_path or do {
         logmsg('error', "cannot open $tic_disp: $!");
         return;
     };
-    my $read = read $fh, $data, $cfg{MaxTicSize} + 1;
-    close $fh;
-    unless (defined $read) {
+    my $data;
+    unless (defined(read $fh, $data, $cfg{MaxTicSize} + 1)) {
         logmsg('error', "cannot read $tic_disp: $!");
         return;
     }
-    return corrupt_tic($tic, 'size exceeds MaxTicSize') if length $data > $cfg{MaxTicSize};
+    close $fh;
+    return corrupt_tic($tic, 'size ' . (-s $tic_path) . ' exceeds MaxTicSize')
+        if length $data > $cfg{MaxTicSize};
     return corrupt_tic($tic, 'contains NUL bytes') if $data =~ /\0/;
 
     # Keywords are case insensitive; the first occurrence wins.
     my %kw;
-    for my $line (split /\r\n|\r|\n/, $data) {
-        my ($key, $value) = $line =~ /^[ \t]*(\S+)[ \t]*(.*?)[ \t]*\z/ or next;
-        $key = lc $key;
-        $kw{$key} = $value unless exists $kw{$key};
+    for my $line (split /\r\n|\r|\n/, $cfg{TicCharset}->decode($data)) {
+        my ($key, $value) = $line =~ /^[ \t]*(\S+)[ \t]*(.*?)[ \t]*\z/a or next;
+        $kw{lc $key} //= $value;
     }
 
     my @names;
-    for my $raw (grep { defined && length } $kw{lfile}, $kw{fullname}, $kw{file}) {
-        my $name = decode($cfg{TicCharset}, $raw);
+    for my $name (grep { defined && length } @kw{qw(lfile fullname file)}) {
         if (my $why = invalid_name($name)) {
             return corrupt_tic($tic, "file name '$name' $why");
         }
-        push @names, $name;
+        push @names, $name unless grep { $_ eq $name } @names;
     }
     return corrupt_tic($tic, 'no File or Lfile') unless @names;
     return corrupt_tic($tic, "invalid Size '$kw{size}'")
-        if defined $kw{size} && $kw{size} !~ /^\d+\z/;
+        if defined $kw{size} && $kw{size} !~ /^[0-9]+\z/;
 
     my (@why, %seen);
     for my $f (map { find_files($_) } @names) {
@@ -280,7 +295,7 @@ sub process_tic {
     }
     elsif ($cfg{DeleteOrphanTics}) {
         logmsg('info', "$tic_disp: $why, deleting tic");
-        delete_files($tic_path);
+        delete_file($tic_path);
     }
     else {
         logmsg('info', "$tic_disp: $why, moving tic");
@@ -314,24 +329,19 @@ sub find_files {
         logmsg('error', 'cannot read FilesPath ' . disp($cfg{FilesPath}) . ": $!");
         return;
     };
-    my @entries = sort readdir $dh;
-    closedir $dh;
-
-    my $ci = $cfg{ForceCaseInsensitive};
+    my $ci = !$cfg{FileNamesCaseSensitive};
     my $want = $ci ? fc $name : $name;
     my (@files, @copies);
-    for my $e (@entries) {
+    while (defined(my $e = readdir $dh)) {
         my $have = $ci ? fc disp($e) : disp($e);
-        if ($e eq $fs_name) {
-            unshift @files, [$e, $e];
-        }
-        elsif ($ci && $have eq $want) {
+        if ($have eq $want) {
             push @files, [$e, $e];
         }
         elsif (is_renamed_copy($have, $want)) {
             push @copies, [$e, $fs_name];
         }
     }
+    closedir $dh;
     return grep { is_regular(File::Spec->catfile($cfg{FilesPath}, $_->[0])) } @files, @copies;
 }
 
@@ -348,7 +358,7 @@ sub is_renamed_copy {
     my $i = $dot + 1;
     return 0 unless substr($cand, 0, $i) eq substr($name, 0, $i);
     $i++ while $i < length $name && substr($cand, $i, 1) eq substr($name, $i, 1);
-    return $i < length $name && substr($cand, $i) =~ /^[0-9a-z]+\z/i;
+    return $i < length $name && substr($cand, $i) =~ /^[0-9A-Za-z]+\z/;
 }
 
 # Returns the reason why the file does not match the tic, or undef.
@@ -359,24 +369,22 @@ sub mismatch {
     return 'no Crc in tic' unless defined $crc && length $crc;
     return "invalid Crc '$crc'" unless $crc =~ /^[0-9A-Fa-f]{8}\z/;
 
-    my $size = -s $path;
-    if (defined $kw->{size}) {
-        return "size is $size, tic says $kw->{size}" if $kw->{size} != $size;
-    }
-
     open my $fh, '<:raw', $path or return "cannot open: $!";
+    my $size = -s $fh;
+    return "size is $size, tic says $kw->{size}" if defined $kw->{size} && $kw->{size} != $size;
+
     my ($buf, $sum, $n) = ('', 0);
     $sum = crc32($buf, $sum) while $n = read $fh, $buf, 65536;
-    close $fh;
     return "read error: $!" unless defined $n;
+    close $fh;
 
     $sum = sprintf '%08X', $sum;
     return "CRC is $sum, tic says " . uc $crc if $sum ne uc $crc;
     return undef;
 }
 
-# Moves [path, name] pairs to $dir. Nothing is moved if a file with the same
-# name is already there, unless OverwriteExisting is set.
+# Moves [path, name] pairs to $dir, all or none. Nothing is moved if a file
+# with the same name is already there, unless OverwriteExisting is set.
 sub move_files {
     my ($dir, @files) = @_;
 
@@ -388,28 +396,36 @@ sub move_files {
             }
         }
     }
+    my @moved;
     for my $f (@files) {
         my ($src, $name) = @$f;
         my $dst = File::Spec->catfile($dir, $name);
         unless (move($src, $dst)) {
             logmsg('error', 'cannot move ' . disp($src) . ' to ' . disp($dst) . ": $!");
+            # Do not leave a file in DestPath without its tic.
+            for my $m (reverse @moved) {
+                move($m->[1], $m->[0])
+                    or logmsg('error', 'cannot move ' . disp($m->[1]) . " back: $!");
+            }
             return 0;
         }
         logmsg('debug', 'moved ' . disp($src) . ' to ' . disp($dst));
-        # The file echo processor must not overlook anything in DestPath.
-        unhide($dst) if $dir eq $cfg{DestPath};
+        push @moved, [$src, $dst];
+    }
+    # The file echo processor must not overlook anything in DestPath.
+    if ($dir eq $cfg{DestPath}) {
+        unhide($_->[1]) for @moved;
     }
     return 1;
 }
 
-sub delete_files {
-    for my $path (@_) {
-        if (unlink $path) {
-            logmsg('debug', 'deleted ' . disp($path));
-        }
-        else {
-            logmsg('error', 'cannot delete ' . disp($path) . ": $!");
-        }
+sub delete_file {
+    my ($path) = @_;
+    if (unlink $path) {
+        logmsg('debug', 'deleted ' . disp($path));
+    }
+    else {
+        logmsg('error', 'cannot delete ' . disp($path) . ": $!");
     }
 }
 
@@ -420,7 +436,7 @@ sub corrupt_tic {
 
     logmsg('warn', disp($tic) . ": corrupt tic ($why), action: $action");
     if ($action eq 'delete') {
-        delete_files($tic_path);
+        delete_file($tic_path);
     }
     elsif ($action eq 'move') {
         move_files($cfg{CorruptTicPath}, [$tic_path, $tic]);

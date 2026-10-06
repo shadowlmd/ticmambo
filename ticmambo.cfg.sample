@@ -4,6 +4,8 @@
 ; Format: Keyword Value. Keywords are case insensitive.
 ; Lines starting with ';' or '#' are comments.
 ; Periods are whole days. Yes/No are boolean values.
+; The file is read as UTF-8 or, if it is not valid UTF-8, in the system
+; encoding (the ANSI code page on Windows).
 ;
 
 TicPath d:\fido\inbound
@@ -19,7 +21,8 @@ TicPath d:\fido\inbound
 
 DestPath d:\fido\inbound\fecho
 ;
-; Where to move files together with their tics. Required.
+; Where to move files together with their tics. Required. Must be
+; different from TicPath and FilesPath.
 ; Set this directory as the inbound in your file echo processor's config.
 
 ;TicCharset cp866
@@ -27,10 +30,12 @@ DestPath d:\fido\inbound\fecho
 ; Encoding of file names in tics. Names are converted from it to the file
 ; system encoding. Default: cp866.
 
-;ForceCaseInsensitive No
+;FileNamesCaseSensitive Yes
 ;
-; Yes - ignore case of file names when looking for the file of a tic.
-; Default: No.
+; Yes - the file of a tic and its renamed copies must have the same case
+; as the name in the tic. No - case is ignored. This does not depend on
+; the file system: on Windows too, Yes means FILE.ZIP in a tic does not
+; match file.zip. Default: No on Windows, Yes elsewhere.
 
 ;UseCreationTime Yes
 ;
@@ -86,6 +91,7 @@ DestPath d:\fido\inbound\fecho
 CorruptTicPath d:\fido\inbound\corrupt
 ;
 ; Where to move corrupt tics. Required with CorruptTicAction Move.
+; Must be different from TicPath and FilesPath.
 
 LogFile d:\fido\log\ticmambo.log
 ;

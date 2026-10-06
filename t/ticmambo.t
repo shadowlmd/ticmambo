@@ -29,11 +29,11 @@ my ($root, $in, $dest, $corrupt, $log);
 sub fsn { encode(locale_fs => $_[0]) }
 
 sub setup {
-    $root   = tempdir(CLEANUP => 1);
-    $in     = catfile($root, 'in');
-    $dest   = catfile($root, 'dest');
+    $root    = tempdir(CLEANUP => 1);
+    $in      = catfile($root, 'in');
+    $dest    = catfile($root, 'dest');
     $corrupt = catfile($root, 'corrupt');
-    $log    = catfile($root, 'ticmambo.log');
+    $log     = catfile($root, 'ticmambo.log');
     mkdir $_ or die "mkdir $_: $!" for $in, $dest, $corrupt;
 }
 
@@ -43,7 +43,7 @@ sub run_ticmambo {
     my %cfg = (
         TicPath         => $in,
         DestPath        => $dest,
-        CorruptTicPath   => $corrupt,
+        CorruptTicPath  => $corrupt,
         LogFile         => $log,
         LogLevel        => 'debug',
         UseCreationTime => 'No',
@@ -215,6 +215,19 @@ subtest 'copies renamed by the mailer' => sub {
         is(slurp(catfile($in, 'file.zip')), 'stale leftover', "stale file.zip left alone ($copy)");
     }
 
+    # The file itself is checked before its copies, whatever the order in
+    # the directory; several copies make an accidental pass unlikely.
+    for my $cs (qw(Yes No)) {
+        setup();
+        put($in, $_, $c) for 'file.zip.0', 'file.zip.1', 'file.zip.9', 'file.zi0', 'file.zia', 'file.z0a';
+        put($in, $cs eq 'Yes' ? 'file.zip' : 'FILE.ZIP', $c);
+        put($in, 'f.tic', std_tic('file.zip', $c));
+        run_ticmambo(FileNamesCaseSensitive => $cs);
+        ok(!has($in, 'file.zip') && !has($in, 'FILE.ZIP'), "$cs: the file itself moved, not a copy");
+        is(scalar(grep { has($in, $_) } 'file.zip.0', 'file.zip.1', 'file.zip.9', 'file.zi0', 'file.zia', 'file.z0a'),
+            6, "$cs: all copies left alone");
+    }
+
     setup();
     put($in, 'file.zip.1', 'wrong 1');
     put($in, 'file.zip.2', $c);
@@ -243,10 +256,10 @@ subtest 'copies renamed by the mailer' => sub {
     setup();
     put($in, 'FILE.ZIP.1', $c);
     put($in, 'f.tic', std_tic('file.zip', $c));
-    run_ticmambo(ForceCaseInsensitive => 'No', WaitForFileDays => 3);
-    ok(has($in, 'FILE.ZIP.1'), 'No: copy in other case ignored') unless $IS_WIN;
-    run_ticmambo(ForceCaseInsensitive => 'Yes');
-    ok(has($dest, 'file.zip'), 'Yes: copy in other case moved under tic name');
+    run_ticmambo(FileNamesCaseSensitive => 'Yes', WaitForFileDays => 3);
+    ok(has($in, 'FILE.ZIP.1') && has($in, 'f.tic'), 'Yes: copy in other case ignored');
+    run_ticmambo(FileNamesCaseSensitive => 'No');
+    ok(has($dest, 'file.zip'), 'No: copy in other case moved under tic name');
 
     setup();
     put($in, 'file.zip.1', $c);
@@ -298,7 +311,7 @@ subtest 'tics without file names are corrupt' => sub {
     put($in, 'blank.tic', "\r\n\r\n   \t\r\n");
     put($in, 'emptyval.tic', tic_text('File', 'Lfile   ', 'Crc'));
     run_ticmambo(WaitForFileDays => 3);
-    ok(has($corrupt, $_), "$_ quarantined") for qw(nofile.tic empty.tic blank.tic emptyval.tic);
+    ok(has($corrupt, $_), "$_ in CorruptTicPath") for qw(nofile.tic empty.tic blank.tic emptyval.tic);
     dump_log_on_fail();
 };
 
@@ -315,7 +328,7 @@ SKIP: {
         close $r;
         is(run_ticmambo(MaxTicSize => 65536), 0, 'exit code');
         my @left = grep { has($in, "junk$_.tic") || has($corrupt, "junk$_.tic") } 1 .. 20;
-        is(scalar @left, 20, 'every junk tic is either waiting or quarantined');
+        is(scalar @left, 20, 'every junk tic is either waiting or in CorruptTicPath');
         dump_log_on_fail();
     };
 }
@@ -382,25 +395,26 @@ subtest 'line endings and keyword formatting' => sub {
     dump_log_on_fail();
 };
 
-subtest 'ForceCaseInsensitive' => sub {
-    SKIP: {
-        skip 'file system is case insensitive', 2 if $IS_WIN;
-        setup();
-        put($in, 'file.zip', 'x');
-        put($in, 'f.tic', tic_text('File FILE.ZIP', 'Crc ' . crc('x')));
-        run_ticmambo(ForceCaseInsensitive => 'No', WaitForFileDays => 3);
-        ok(has($in, 'f.tic') && has($in, 'file.zip'), 'No: different case is not found');
-
-        put($in, 'f.tic', tic_text('File file.zip', 'Crc ' . crc('x')));
-        put($in, 'FILE.ZIP', 'x');
-        run_ticmambo(ForceCaseInsensitive => 'Yes');
-        ok(has($dest, 'file.zip') && has($in, 'FILE.ZIP'), 'Yes: exact name is checked first');
-    }
+subtest 'FileNamesCaseSensitive' => sub {
+    # The same on every file system, Windows included.
     setup();
     put($in, 'file.zip', 'x');
     put($in, 'f.tic', tic_text('File FILE.ZIP', 'Crc ' . crc('x')));
-    run_ticmambo(ForceCaseInsensitive => 'Yes');
-    ok(has($dest, 'file.zip'), 'Yes: found and moved under its own name');
+    run_ticmambo(FileNamesCaseSensitive => 'Yes', WaitForFileDays => 3);
+    ok(has($in, 'f.tic') && has($in, 'file.zip'), 'Yes: different case is not found');
+    run_ticmambo(FileNamesCaseSensitive => 'No');
+    ok(has($dest, 'file.zip'), 'No: found and moved under its own name');
+
+    setup();
+    put($in, 'file.zip', 'x');
+    put($in, 'f.tic', tic_text('File FILE.ZIP', 'Crc ' . crc('x')));
+    run_ticmambo(WaitForFileDays => 3);
+    if ($IS_WIN) {
+        ok(has($dest, 'file.zip'), 'default on Windows: No');
+    }
+    else {
+        ok(has($in, 'file.zip') && has($in, 'f.tic'), 'default outside Windows: Yes');
+    }
     dump_log_on_fail();
 };
 
@@ -414,7 +428,7 @@ subtest 'non-ASCII names' => sub {
     setup();
     put($in, 'тЕСТ.ZIP', 'kirill');
     put($in, 'b.tic', tic_text('Lfile ' . encode('cp866', 'Тест.zip'), 'Crc ' . crc('kirill')));
-    run_ticmambo(ForceCaseInsensitive => 'Yes');
+    run_ticmambo(FileNamesCaseSensitive => 'No');
     ok(has($dest, 'тЕСТ.ZIP'), 'case insensitive Cyrillic match');
 
     setup();
@@ -457,7 +471,7 @@ for my $action (qw(Move Delete Keep)) {
         for my $n (1 .. $i) {
             my $t = "evil$n.tic";
             if ($action eq 'Move') {
-                ok(has($corrupt, $t) && !has($in, $t), "$t quarantined");
+                ok(has($corrupt, $t) && !has($in, $t), "$t in CorruptTicPath");
             }
             elsif ($action eq 'Delete') {
                 ok(!has($corrupt, $t) && !has($in, $t), "$t deleted");
@@ -468,13 +482,12 @@ for my $action (qw(Move Delete Keep)) {
         }
         my @dest = grep { !/^\.\.?$/ } do { opendir(my $d, $dest); readdir $d };
         is(scalar @dest, 0, 'nothing reached dest');
+        unlike(log_text(), qr/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/, 'no control characters in the log');
         dump_log_on_fail();
     };
 }
 
 subtest 'invalid Size makes the tic corrupt' => sub {
-    setup();
-    put($in, 'f.zip', 'abcd');
     my $crc = crc('abcd');
     my %tics = (
         'k.tic'     => "Size 4k",
@@ -488,11 +501,15 @@ subtest 'invalid Size makes the tic corrupt' => sub {
         'arab.tic'  => "Size \xD9\xA4",
         'wide.tic'  => "Size \xEF\xBC\x94",
     );
-    put($in, $_, tic_text('File f.zip', $tics{$_}, "Crc $crc")) for keys %tics;
-    run_ticmambo();
-    ok(has($corrupt, $_), "$tics{$_}: quarantined") for sort keys %tics;
-    ok(has($in, 'f.zip'), 'file untouched');
-    dump_log_on_fail();
+    for my $charset (qw(cp866 UTF-8)) {
+        setup();
+        put($in, 'f.zip', 'abcd');
+        put($in, $_, tic_text('File f.zip', $tics{$_}, "Crc $crc")) for keys %tics;
+        run_ticmambo(TicCharset => $charset);
+        ok(has($corrupt, $_), "$charset, $tics{$_}: in CorruptTicPath") for sort keys %tics;
+        ok(has($in, 'f.zip'), "$charset: file untouched");
+        dump_log_on_fail();
+    }
 };
 
 subtest 'NUL bytes and oversized tics are corrupt' => sub {
@@ -502,8 +519,8 @@ subtest 'NUL bytes and oversized tics are corrupt' => sub {
     put($in, 'big.tic', std_tic('f.zip', 'x') . ('Ldesc ' . ('x' x 70) . "\r\n") x 1000);
     put($in, 'limit.tic', std_tic('g.zip', 'x'));
     run_ticmambo(MaxTicSize => 2000);
-    ok(has($corrupt, 'nul.tic'), 'tic with NUL quarantined');
-    ok(has($corrupt, 'big.tic'), 'oversized tic quarantined');
+    ok(has($corrupt, 'nul.tic'), 'tic with NUL in CorruptTicPath');
+    ok(has($corrupt, 'big.tic'), 'oversized tic in CorruptTicPath');
     ok(has($in, 'f.zip'), 'file untouched');
     ok(has($in, 'limit.tic'), 'small tic processed normally');
     dump_log_on_fail();
@@ -519,8 +536,8 @@ SKIP: {
         put($in, 'rnd.tic', $junk);
         put($in, 'rnd2.tic', "File x\r\n\0" . substr($junk, 0, 1000));
         is(run_ticmambo(), 0, 'exit code');
-        ok(has($corrupt, 'rnd.tic'), '1 MB random tic quarantined');
-        ok(has($corrupt, 'rnd2.tic'), 'small binary tic quarantined');
+        ok(has($corrupt, 'rnd.tic'), '1 MB random tic moved to CorruptTicPath');
+        ok(has($corrupt, 'rnd2.tic'), 'small binary tic moved to CorruptTicPath');
     };
 }
 
@@ -536,7 +553,7 @@ SKIP: {
         my $t0 = time;
         is(run_ticmambo(), 0, 'exit code');
         ok(time - $t0 < 30, 'did not read the whole file');
-        ok(has($corrupt, 'huge.tic'), 'quarantined');
+        ok(has($corrupt, 'huge.tic'), 'moved to CorruptTicPath');
     };
 }
 
@@ -601,9 +618,29 @@ subtest 'existing files in DestPath' => sub {
     put($in, 'evil.tic', tic_text('File ../x'));
     put($corrupt, 'evil.tic', 'previous');
     run_ticmambo();
-    ok(has($in, 'evil.tic'), 'corrupt tic kept when quarantine already has one');
+    ok(has($in, 'evil.tic'), 'corrupt tic kept when CorruptTicPath already has one');
     dump_log_on_fail();
 };
+
+SKIP: {
+    skip 'needs Unix permissions', 1 if $IS_WIN || $> == 0;
+    subtest 'pair is moved all or none' => sub {
+        # The tic cannot be moved out of a read-only TicPath; the file that
+        # was already moved must come back.
+        setup();
+        my $files = catfile($root, 'files');
+        mkdir $files;
+        put($files, 'f.zip', 'x');
+        put($in, 'f.tic', std_tic('f.zip', 'x'));
+        chmod 0555, $in or die $!;
+        run_ticmambo(FilesPath => $files);
+        chmod 0755, $in;
+        ok(has($files, 'f.zip') && has($in, 'f.tic'), 'file moved back, tic in place');
+        ok(!has($dest, 'f.zip') && !has($dest, 'f.tic'), 'nothing in DestPath');
+        like(log_text(), qr/cannot move/, 'error logged');
+        dump_log_on_fail();
+    };
+}
 
 subtest 'TouchFiles' => sub {
     setup();
@@ -660,7 +697,7 @@ SKIP: {
         run_ticmambo(WaitForHiddenTicDays => 0, WaitForFileDays => 0);
         ok(has($dest, 'f.tic') && has($dest, 'f.zip'), '0: hidden tic processed at once');
         ok(!$hidden->(catfile($dest, 'f.tic')), 'attribute cleared on tic in DestPath');
-        ok(has($corrupt, 'empty.tic'), 'hidden corrupt tic quarantined');
+        ok(has($corrupt, 'empty.tic'), 'hidden corrupt tic moved to CorruptTicPath');
         ok($hidden->(catfile($corrupt, 'empty.tic')), 'attribute kept outside DestPath');
 
         setup();
@@ -685,7 +722,10 @@ SKIP: {
 
 subtest 'UseCreationTime' => sub {
     # The tic is created now but its mtime is 10 days old.
-    my $birth = $IS_WIN || $^O eq 'linux' && eval { require 'syscall.ph'; 1 };
+    setup();
+    my $probe = put($root, 'probe', '');
+    my $birth = $IS_WIN || $^O eq 'linux' && eval { require 'syscall.ph'; 1 }
+        && (`stat -c %W '$probe' 2>/dev/null` || 0) > 0;
     for my $use (qw(Yes No)) {
         setup();
         put($in, 'f.tic', std_tic('none.zip', 'x'), 10);
@@ -738,6 +778,18 @@ subtest 'config line endings' => sub {
     }
 };
 
+subtest 'non-ASCII paths in a UTF-8 config' => sub {
+    setup();
+    my $in2 = catfile($root, fsn('входящие'));
+    mkdir $in2 or die $!;
+    put($in2, 'f.zip', 'x');
+    put($in2, 'f.tic', std_tic('f.zip', 'x'));
+    my $cfg = put($root, 'utf8.cfg', encode('UTF-8', "TicPath $root/входящие\r\nDestPath $dest\r\n"
+        . "CorruptTicAction Keep\r\nLogFile $log\r\n"));
+    is(system($^X, $SCRIPT, $cfg) >> 8, 0, 'config accepted');
+    ok(has($dest, 'f.zip') && has($dest, 'f.tic'), 'TicPath found');
+};
+
 subtest 'config errors' => sub {
     setup();
     isnt(run_ticmambo(TicPath => undef), 0, 'missing TicPath');
@@ -751,6 +803,10 @@ subtest 'config errors' => sub {
     isnt(run_ticmambo(TicCharset => 'no-such-charset'), 0, 'bad charset');
     isnt(run_ticmambo(LogLevel => 'chatty'), 0, 'bad log level');
     isnt(run_ticmambo(NoSuchKeyword => 1), 0, 'unknown keyword');
+    isnt(run_ticmambo(DestPath => $in), 0, 'DestPath is TicPath');
+    isnt(run_ticmambo(DestPath => "$in/../in"), 0, 'DestPath is TicPath, other spelling');
+    isnt(run_ticmambo(FilesPath => $dest), 0, 'DestPath is FilesPath');
+    isnt(run_ticmambo(CorruptTicPath => $in), 0, 'CorruptTicPath is TicPath');
     isnt(system($^X, $SCRIPT, catfile($root, 'missing.cfg')) >> 8, 0, 'missing config file');
     is(run_ticmambo(LogLevel => undef, touchfiles => "yes", LOGLEVEL => "INFO"), 0, 'keywords and values are case insensitive');
 };
