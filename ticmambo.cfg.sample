@@ -1,4 +1,3 @@
-;
 ; TicMambo configuration.
 ;
 ; Format: Keyword Value. Keywords are case insensitive.
@@ -6,71 +5,60 @@
 ; Periods are whole days. Yes/No are boolean values.
 ; The file is read as UTF-8 or, if it is not valid UTF-8, in the system
 ; encoding (the ANSI code page on Windows).
-;
 
-TicPath d:\fido\inbound
-;
 ; Where to look for tics. Required.
+TicPath d:\fido\inbound
 
+; Where to look for files. Besides the file named in the tic, its copies
+; renamed by the mailer (file.zip.1, file.zi0 and so on) are checked too.
+; A matching copy is moved to DestPath under the name from the tic.
+; Default: TicPath.
 ;FilesPath d:\fido\inbound
-;
-; Where to look for files. Default: TicPath.
-; Besides the file named in the tic, its copies renamed by the mailer
-; (file.zip.1, file.zi0 and so on) are checked too. A matching copy is
-; moved to DestPath under the name from the tic.
 
-DestPath d:\fido\inbound\fecho
-;
 ; Where to move files together with their tics. Required. Must be
 ; different from TicPath and FilesPath.
 ; Set this directory as the inbound in your file echo processor's config.
+DestPath d:\fido\inbound\fecho
 
-;TicCharset cp866
-;
 ; Encoding of file names in tics. Names are converted from it to the file
 ; system encoding. Default: cp866.
+;TicCharset cp866
 
-;IgnoreCase No
-;
 ; Case of file names when looking for the file of a tic and its renamed
 ; copies (keywords in tics are always case insensitive). Yes - case is
 ; ignored. No - the file must have the same case as the name in the tic.
 ; This does not depend on the file system: on Windows too, No means
 ; FILE.ZIP in a tic does not match file.zip. Default: Yes on Windows,
 ; No elsewhere.
+;IgnoreCase Yes
 
-;UseCreationTime Yes
-;
-; Yes - file age is based on creation time, No - on modification time.
+; Yes - tic age (see WaitForFileDays and WaitForHiddenTicDays) is based
+; on its creation time, No - on its modification time.
 ; Creation time is supported on Windows and on Linux (via statx(2), if
 ; syscall.ph is available and the file system stores creation time).
 ; Otherwise modification time is used. Default: Yes.
+;UseCreationTime Yes
 
+; How many days to wait for a file that matches the tic by Crc and Size,
+; counted from the tic's creation or modification time (see
+; UseCreationTime). After that see DeleteOrphanTics. Default: 3.
 ;WaitForFileDays 3
-;
-; How many days to wait for a file that matches the tic by Crc and Size.
-; After that see DeleteOrphanTics. Default: 3.
 
-;DeleteOrphanTics No
-;
 ; Yes - delete tics for which no matching file arrived in time, No - move
 ; them to DestPath without a file. Non-matching files are never touched.
 ; Default: No.
+;DeleteOrphanTics No
 
-;WaitForHiddenTicDays 7
-;
 ; Windows: how many days to skip a tic with the 'hidden' attribute (it may
 ; still be being received). After that it is processed as usual.
 ; 0 - do not wait. Files and tics moved to DestPath always have the
 ; attribute cleared. Default: 7.
+;WaitForHiddenTicDays 7
 
-;TouchFiles No
-;
 ; Yes - set the current time on good files when moving them.
 ; Default: No.
+;TouchFiles No
 
-;FixShortName No
-;
 ; Windows: for file echo processors that only understand File and open
 ; the file by its short (8.3) name. If the tic has Lfile or Fullname that
 ; differs from File, the short name that Windows gave the file in DestPath
@@ -78,26 +66,22 @@ DestPath d:\fido\inbound\fecho
 ; the tic is replaced with it. If the file has no short name (8.3 names
 ; are disabled on the volume), the tic is left as it is and a warning is
 ; logged. Ignored on other systems. Default: No.
+;FixShortName No
 
-;AddFullname No
-;
 ; Yes - add Fullname with the value of Lfile to tics that have Lfile but
 ; no Fullname, for file echo processors that understand Fullname but not
 ; Lfile. Default: No.
+;AddFullname No
 
-;OverwriteExisting No
-;
 ; Yes - overwrite files in DestPath and CorruptTicPath. No - if a file or
 ; tic with the same name is already there, skip the tic until the next
 ; run. Default: No.
+;OverwriteExisting No
 
-;MaxTicSize 65536
-;
 ; Tics larger than this size (in bytes) are considered corrupt.
 ; Default: 65536.
+;MaxTicSize 65536
 
-;CorruptTicAction Move
-;
 ; What to do with corrupt tics (too large, binary, no File/Lfile, Size is
 ; not a number, file name with a path, drive letter, control characters,
 ; '.', '..' or a device name such as CON or NUL):
@@ -105,16 +89,14 @@ DestPath d:\fido\inbound\fecho
 ;   Delete - delete;
 ;   Keep   - leave in place (log only).
 ; Default: Move.
+;CorruptTicAction Move
 
-CorruptTicPath d:\fido\inbound\corrupt
-;
 ; Where to move corrupt tics. Required with CorruptTicAction Move.
 ; Must be different from TicPath and FilesPath.
+CorruptTicPath d:\fido\inbound\corrupt
 
-LogFile d:\fido\log\ticmambo.log
-;
 ; Log file (UTF-8). If not set, the log goes to stderr.
+LogFile d:\fido\log\ticmambo.log
 
-;LogLevel info
-;
 ; Log level: error, warn, info, debug. Default: info.
+;LogLevel info
