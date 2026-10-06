@@ -46,7 +46,8 @@ file found there:
    a `Size`, its size equals `Size`. The first matching file is moved to
    `DestPath` together with the tic, and a renamed copy gets the name from
    the tic. If a file or tic with the same name is already in `DestPath`,
-   the pair is left for the next run (see `OverwriteExisting`).
+   the pair is left for the next run (see `OverwriteExisting`). If the tic
+   cannot be moved, the file is moved back, so a pair is never split.
 5. **No match.** A tic without a matching file waits `WaitForFileDays` days,
    then it is moved to `DestPath` alone or deleted (see `DeleteOrphanTics`).
    Files that don't match are never touched.
@@ -103,6 +104,7 @@ encoding (the ANSI code page on Windows).
 
 Messages go to `LogFile` (UTF-8) or, if it is not set, to stderr. `LogLevel`
 selects how much is logged: `error`, `warn`, `info` (default) or `debug`.
+Control characters in names are logged as `\xNN`.
 
 ## Tests
 
@@ -113,8 +115,8 @@ prove t
 The tests run TicMambo on temporary directories. They cover matching and
 non-matching files, renamed copies, malformed and malicious tics, character
 sets, case insensitivity, and config errors. Tests that need Windows
-(hidden attributes, open files) or Unix (symlinks, FIFOs, a sparse 2 GB tic)
-are skipped on other systems.
+(hidden attributes, open files) or Unix (symlinks, FIFOs, permissions, a
+sparse 2 GB tic) are skipped on other systems.
 
 ## License
 
