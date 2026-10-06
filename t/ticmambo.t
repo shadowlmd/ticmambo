@@ -41,8 +41,10 @@ sub setup {
 }
 
 # Runs ticmambo with the base config plus overrides, returns the exit code.
+# _preload is Perl code to run before the script, for simulations.
 sub run_ticmambo {
     my (%opt) = @_;
+    my $preload = delete $opt{_preload};
     my %cfg = (
         TicPath         => $in,
         DestPath        => $dest,
@@ -59,7 +61,13 @@ sub run_ticmambo {
         print $fh "$k $cfg{$k}\r\n" if defined $cfg{$k};
     }
     close $fh;
-    system($^X, $SCRIPT, $cfg_file);
+    if (defined $preload) {
+        my $pre = put($root, 'preload.pl', "$preload;\n" . '$0 = shift; do $0; die $@ if $@; die "$0: $!" if $!;' . "\n");
+        system($^X, $pre, $SCRIPT, $cfg_file);
+    }
+    else {
+        system($^X, $SCRIPT, $cfg_file);
+    }
     return $? >> 8;
 }
 
@@ -735,28 +743,9 @@ subtest 'AddFullname' => sub {
     like(log_text(), qr/f\.tic: cannot edit \(added Fullname\)/, 'cannot write: logged');
 };
 
-subtest 'FixShortName' => sub {
+subtest 'FixShortName: cases that leave the tic alone' => sub {
     my $c = 'long';
     my $tic = tic_text('File WRONG~9.ZIP', 'Lfile Long File Name.zip', 'Crc ' . crc($c));
-
-    setup();
-    put($in, 'Long File Name.zip', $c);
-    put($in, 'f.tic', $tic);
-    run_ticmambo(FixShortName => 'Yes');
-    ok(has($dest, 'Long File Name.zip'), 'file moved');
-    my $short = $IS_WIN && Win32::GetShortPathName(catfile($dest, fsn('Long File Name.zip')));
-    if (!$IS_WIN) {
-        is(slurp(catfile($dest, 'f.tic')), $tic, 'not Windows: tic unchanged');
-    }
-    elsif ($short =~ /Long File Name/) {
-        is(slurp(catfile($dest, 'f.tic')), $tic, 'no 8.3 names on this volume: tic unchanged');
-        like(log_text(), qr/has no short name/, 'logged');
-    }
-    else {
-        $short = (File::Spec->splitpath($short))[2];
-        is(slurp(catfile($dest, 'f.tic')), tic_text("File $short", 'Lfile Long File Name.zip', 'Crc ' . crc($c)),
-            "File replaced with $short");
-    }
 
     setup();
     put($in, 'Long File Name.zip', $c);
@@ -770,7 +759,52 @@ subtest 'FixShortName' => sub {
     run_ticmambo(FixShortName => 'Yes');
     is(slurp(catfile($dest, 'f.tic')), tic_text('File F.ZIP', 'Lfile f.zip', 'Crc ' . crc($c)),
         'long name equal to File: tic unchanged');
+
+    unless ($IS_WIN) {
+        setup();
+        put($in, 'Long File Name.zip', $c);
+        put($in, 'f.tic', $tic);
+        run_ticmambo(FixShortName => 'Yes');
+        is(slurp(catfile($dest, 'f.tic')), $tic, 'not Windows: ignored');
+    }
 };
+
+SKIP: {
+    skip 'Win32 only', 2 unless $IS_WIN;
+
+    # Needs 8.3 names on the volume of the temporary directory: without them
+    # FixShortName cannot work, and this test fails.
+    subtest 'FixShortName' => sub {
+        my $c = 'long';
+        setup();
+        put($in, 'Long File Name.zip', $c);
+        put($in, 'f.tic', tic_text('File WRONG~9.ZIP', 'Lfile Long File Name.zip', 'Crc ' . crc($c)));
+        run_ticmambo(FixShortName => 'Yes');
+        ok(has($dest, 'Long File Name.zip'), 'file moved');
+        my $short = Win32::GetShortPathName(catfile($dest, fsn('Long File Name.zip')));
+        $short = (File::Spec->splitpath($short))[2] if defined $short;
+        like($short, qr/^[^.]{1,8}\.[^.]{1,3}\z/, 'file has an 8.3 short name');
+        is(slurp(catfile($dest, 'f.tic')), tic_text("File $short", 'Lfile Long File Name.zip', 'Crc ' . crc($c)),
+            'File replaced with the short name');
+    };
+
+    subtest 'FixShortName: no short name (simulated)' => sub {
+        my $c = 'long';
+        my $tic = tic_text('File WRONG~9.ZIP', 'Lfile Long File Name.zip', 'Crc ' . crc($c));
+        for my $t (['8.3 names disabled', 'sub { $_[0] }', qr/has no short name, File left as is/],
+                   ['GetShortPathName fails', 'sub { undef }', qr/cannot get the short name/]) {
+            my ($label, $sub, $warning) = @$t;
+            setup();
+            put($in, 'Long File Name.zip', $c);
+            put($in, 'f.tic', $tic);
+            run_ticmambo(FixShortName => 'Yes',
+                _preload => "require Win32; no warnings; *Win32::GetShortPathName = $sub");
+            ok(has($dest, 'Long File Name.zip'), "$label: file moved");
+            is(slurp(catfile($dest, 'f.tic')), $tic, "$label: tic unchanged");
+            like(log_text(), $warning, "$label: warning logged");
+        }
+    };
+}
 
 subtest 'separate FilesPath' => sub {
     setup();
