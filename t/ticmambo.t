@@ -16,6 +16,7 @@ use Encode qw(encode decode);
 use Encode::Locale;
 use Compress::Zlib qw(crc32);
 use FindBin;
+use Scalar::Util ();
 use File::Spec;
 require Win32 if $^O eq 'MSWin32';
 
@@ -105,8 +106,22 @@ sub slurp {
 
 sub log_text { decode('UTF-8', slurp($log) // '') }
 
-sub dump_log_on_fail {
-    diag(log_text()) unless Test::More->builder->is_passing;
+# A failed check is followed at once by the log of the run it checked.
+BEGIN {
+    no strict 'refs';
+    no warnings 'redefine';
+    for my $name (qw(ok is isnt like unlike)) {
+        my $orig = \&{"Test::More::$name"};
+        my $wrap = sub {
+            local $Test::Builder::Level = $Test::Builder::Level + 1;
+            my $ok = $orig->(@_);
+            my $text = $ok ? '' : log_text();
+            diag("ticmambo log:\n$text") if length $text;
+            return $ok;
+        };
+        Scalar::Util::set_prototype(\&$wrap, prototype $orig);
+        *{"main::$name"} = $wrap;
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -123,7 +138,6 @@ subtest 'good pair is moved, other files are left alone' => sub {
     ok(!has($in, 'file.zip') && !has($in, 'a.tic'), 'nothing left in inbound');
     ok(has($in, 'other.zip') && has($in, '00000001.pkt'), 'unrelated files untouched');
     is(slurp(catfile($dest, 'file.zip')), 'hello world', 'content intact');
-    dump_log_on_fail();
 };
 
 subtest 'tic extension is case insensitive' => sub {
@@ -149,7 +163,6 @@ subtest 'Crc/Size variations that match' => sub {
     put($in, 'empty.tic', tic_text('File empty.zip', 'Size 0', 'Crc 00000000'));
     run_ticmambo();
     ok(has($dest, "$_.zip") && has($dest, "$_.tic"), "$_ moved") for qw(lc nosize zeros empty);
-    dump_log_on_fail();
 };
 
 subtest 'CRC-32 check value' => sub {
@@ -200,7 +213,6 @@ for my $case (
         run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes');
         ok(!has($in, 'f.tic') && !has($dest, 'f.tic'), 'old tic deleted');
         ok(has($in, 'f.zip') && !has($dest, 'f.zip'), 'file left in place');
-        dump_log_on_fail();
     };
 }
 
@@ -272,7 +284,6 @@ subtest 'copies renamed by the mailer' => sub {
     run_ticmambo();
     ok(has($in, 'file.zip.1') && has($in, 'f.tic'), 'name taken in DestPath: skipped');
     is(slurp(catfile($dest, 'file.zip')), 'previous', 'DestPath file intact');
-    dump_log_on_fail();
 };
 
 subtest 'several tics for one file: the matching one wins' => sub {
@@ -285,7 +296,6 @@ subtest 'several tics for one file: the matching one wins' => sub {
         run_ticmambo(WaitForFileDays => 7);
         ok(has($dest, 'f.zip') && has($dest, $good), "good tic $good moved with file");
         ok(has($in, $bad) && !has($dest, $bad), "bad tic $bad stays waiting");
-        dump_log_on_fail();
     }
 };
 
@@ -316,7 +326,6 @@ subtest 'tics without file names are corrupt' => sub {
     put($in, 'emptyval.tic', tic_text('File', 'Lfile   ', 'Crc'));
     run_ticmambo(WaitForFileDays => 3);
     ok(has($corrupt, $_), "$_ in CorruptTicPath") for qw(nofile.tic empty.tic blank.tic emptyval.tic);
-    dump_log_on_fail();
 };
 
 SKIP: {
@@ -333,18 +342,18 @@ SKIP: {
         is(run_ticmambo(MaxTicSize => 65536), 0, 'exit code');
         my @left = grep { has($in, "junk$_.tic") || has($corrupt, "junk$_.tic") } 1 .. 20;
         is(scalar @left, 20, 'every junk tic is either waiting or in CorruptTicPath');
-        dump_log_on_fail();
     };
 }
 
 subtest 'Lfile, Fullname and File' => sub {
     setup();
     put($in, 'Long File Name.zip', 'long');
-    put($in, 'LONGFI~1.ZIP', 'short');
-    put($in, '1.tic', tic_text('File LONGFI~1.ZIP', 'Lfile Long File Name.zip', 'Crc ' . crc('long')));
+    # Not LONGFI~1.ZIP: on Windows that may be the short name of the file above.
+    put($in, 'LFN.ZIP', 'short');
+    put($in, '1.tic', tic_text('File LFN.ZIP', 'Lfile Long File Name.zip', 'Crc ' . crc('long')));
     run_ticmambo();
     ok(has($dest, 'Long File Name.zip'), 'Lfile preferred');
-    ok(has($in, 'LONGFI~1.ZIP'), 'short name untouched');
+    ok(has($in, 'LFN.ZIP'), 'short name untouched');
 
     setup();
     put($in, 'SHORT.ZIP', 'short');
@@ -364,7 +373,6 @@ subtest 'Lfile, Fullname and File' => sub {
     run_ticmambo();
     ok(has($dest, 'odd.'), 'trailing dot in a long name is fine') unless $IS_WIN;
     ok(!has($corrupt, '4.tic'), 'not considered corrupt');
-    dump_log_on_fail();
 };
 
 subtest 'first keyword occurrence wins' => sub {
@@ -396,7 +404,6 @@ subtest 'line endings and keyword formatting' => sub {
         (my $f = $t) =~ s/\.tic$/.zip/;
         ok(has($dest, $f) && has($dest, $t), $t);
     }
-    dump_log_on_fail();
 };
 
 subtest 'FileNamesCaseSensitive' => sub {
@@ -419,7 +426,6 @@ subtest 'FileNamesCaseSensitive' => sub {
     else {
         ok(has($in, 'file.zip') && has($in, 'f.tic'), 'default outside Windows: Yes');
     }
-    dump_log_on_fail();
 };
 
 subtest 'non-ASCII names' => sub {
@@ -446,7 +452,6 @@ subtest 'non-ASCII names' => sub {
     put($in, 'd.tic', tic_text('File ' . encode('cp866', 'Тест.zip'), 'Crc ' . crc('kirill')));
     run_ticmambo(TicCharset => 'cp1251', WaitForFileDays => 3);
     ok(has($in, 'd.tic'), 'wrong TicCharset: file not found, tic waits');
-    dump_log_on_fail();
 };
 
 my @evil_names = (
@@ -487,7 +492,6 @@ for my $action (qw(Move Delete Keep)) {
         my @dest = grep { !/^\.\.?$/ } do { opendir(my $d, $dest); readdir $d };
         is(scalar @dest, 0, 'nothing reached dest');
         unlike(log_text(), qr/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/, 'no control characters in the log');
-        dump_log_on_fail();
     };
 }
 
@@ -510,24 +514,23 @@ subtest 'invalid Size makes the tic corrupt' => sub {
         put($in, 'f.zip', 'abcd');
         put($in, $_, tic_text('File f.zip', $tics{$_}, "Crc $crc")) for keys %tics;
         run_ticmambo(TicCharset => $charset);
-        ok(has($corrupt, $_), "$charset, $tics{$_}: in CorruptTicPath") for sort keys %tics;
+        ok(has($corrupt, $_), "$charset, $_: in CorruptTicPath") for sort keys %tics;
         ok(has($in, 'f.zip'), "$charset: file untouched");
-        dump_log_on_fail();
     }
 };
 
 subtest 'NUL bytes and oversized tics are corrupt' => sub {
     setup();
     put($in, 'f.zip', 'x');
-    put($in, 'nul.tic', "File f.zip\r\nCrc " . crc('x') . "\r\n\0");
+    # Not nul.tic: NUL is a device on Windows, whatever the extension.
+    put($in, 'zero.tic', "File f.zip\r\nCrc " . crc('x') . "\r\n\0");
     put($in, 'big.tic', std_tic('f.zip', 'x') . ('Ldesc ' . ('x' x 70) . "\r\n") x 1000);
     put($in, 'limit.tic', std_tic('g.zip', 'x'));
     run_ticmambo(MaxTicSize => 2000);
-    ok(has($corrupt, 'nul.tic'), 'tic with NUL in CorruptTicPath');
+    ok(has($corrupt, 'zero.tic'), 'tic with NUL in CorruptTicPath');
     ok(has($corrupt, 'big.tic'), 'oversized tic in CorruptTicPath');
     ok(has($in, 'f.zip'), 'file untouched');
     ok(has($in, 'limit.tic'), 'small tic processed normally');
-    dump_log_on_fail();
 };
 
 SKIP: {
@@ -589,7 +592,6 @@ SKIP: {
         ok(-p catfile($in, 'fifo.tic'), 'fifo tic ignored');
         ok(has($in, 'fifo-ref.tic'), 'fifo data file not used');
         ok(-d catfile($in, 'dir.tic') && has($in, 'dir-ref.tic'), 'directories ignored');
-        dump_log_on_fail();
     };
 }
 
@@ -623,7 +625,6 @@ subtest 'existing files in DestPath' => sub {
     put($corrupt, 'evil.tic', 'previous');
     run_ticmambo();
     ok(has($in, 'evil.tic'), 'corrupt tic kept when CorruptTicPath already has one');
-    dump_log_on_fail();
 };
 
 SKIP: {
@@ -642,7 +643,6 @@ SKIP: {
         ok(has($files, 'f.zip') && has($in, 'f.tic'), 'file moved back, tic in place');
         ok(!has($dest, 'f.zip') && !has($dest, 'f.tic'), 'nothing in DestPath');
         like(log_text(), qr/cannot move/, 'error logged');
-        dump_log_on_fail();
     };
 }
 
@@ -733,7 +733,6 @@ subtest 'AddFullname' => sub {
     is(slurp(catfile($dest, 'f.tic')), $tic, 'cannot write: tic moved unchanged');
     ok(has($dest, 'Длинное имя.zip'), 'cannot write: file moved anyway');
     like(log_text(), qr/f\.tic: cannot edit \(added Fullname\)/, 'cannot write: logged');
-    dump_log_on_fail();
 };
 
 subtest 'FixShortName' => sub {
@@ -771,7 +770,6 @@ subtest 'FixShortName' => sub {
     run_ticmambo(FixShortName => 'Yes');
     is(slurp(catfile($dest, 'f.tic')), tic_text('File F.ZIP', 'Lfile f.zip', 'Crc ' . crc($c)),
         'long name equal to File: tic unchanged');
-    dump_log_on_fail();
 };
 
 subtest 'separate FilesPath' => sub {
@@ -834,7 +832,6 @@ SKIP: {
         run_ticmambo(WaitForFileDays => 3);
         ok(has($dest, 'f.zip') && !$hidden->(catfile($dest, 'f.zip')), 'hidden file processed, unhidden');
         ok(has($in, 'g.zip') && $hidden->(catfile($in, 'g.zip')), 'non-matching hidden file untouched');
-        dump_log_on_fail();
     };
 }
 
@@ -873,7 +870,6 @@ SKIP: {
 
         run_ticmambo();
         ok(has($dest, 'f.zip') && has($dest, 'f.tic'), 'moved on the next run');
-        dump_log_on_fail();
     };
 }
 
