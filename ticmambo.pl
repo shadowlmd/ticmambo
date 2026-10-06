@@ -42,7 +42,7 @@ my %OPTIONS = (
     FilesPath              => ['dir',     undef],
     DestPath               => ['dir',     undef],
     TicCharset             => ['charset', find_encoding('cp866')],
-    FileNamesCaseSensitive => ['bool',    $IS_WIN ? 0 : 1],
+    IgnoreCase             => ['bool',    $IS_WIN ? 1 : 0],
     UseCreationTime        => ['bool',    1],
     WaitForFileDays        => ['days',    3],
     DeleteOrphanTics       => ['bool',    0],
@@ -444,7 +444,7 @@ sub find_files {
         logmsg('error', 'cannot read FilesPath ' . disp($cfg{FilesPath}) . ": $!");
         return;
     };
-    my $ci = !$cfg{FileNamesCaseSensitive};
+    my $ci = $cfg{IgnoreCase};
     my $want = $ci ? fc $name : $name;
     my (@files, @copies);
     while (defined(my $e = readdir $dh)) {

@@ -40,8 +40,8 @@ file found there:
    encoding. Copies that the mailer renamed because a file with the same
    name already existed are checked too: `file.zip.1` (binkd "postfix"
    style) and `file.zi0` (binkd "extension" style). The file itself is
-   checked before its copies. Case matters unless `FileNamesCaseSensitive`
-   is `No` (the default on Windows), whatever the file system.
+   checked before its copies. Case matters unless `IgnoreCase` is `Yes`
+   (the default on Windows), whatever the file system.
 4. **Match.** A file matches if its CRC-32 equals `Crc` and, when the tic has
    a `Size`, its size equals `Size`. The first matching file is moved to
    `DestPath` together with the tic, and a renamed copy gets the name from

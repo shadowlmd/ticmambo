@@ -239,15 +239,15 @@ subtest 'copies renamed by the mailer' => sub {
 
     # The file itself is checked before its copies, whatever the order in
     # the directory; several copies make an accidental pass unlikely.
-    for my $cs (qw(Yes No)) {
+    for my $ic (qw(No Yes)) {
         setup();
         my @copies = ('file.zip.0', 'file.zip.1', 'file.zip.9', 'file.zi0', 'file.zia', 'file.z0a');
         put($in, $_, $c) for @copies;
-        put($in, $cs eq 'Yes' ? 'file.zip' : 'FILE.ZIP', $c);
+        put($in, $ic eq 'No' ? 'file.zip' : 'FILE.ZIP', $c);
         put($in, 'f.tic', std_tic('file.zip', $c));
-        run_ticmambo(FileNamesCaseSensitive => $cs);
-        ok(!has($in, 'file.zip') && !has($in, 'FILE.ZIP'), "$cs: the file itself moved, not a copy");
-        is(scalar(grep { has($in, $_) } @copies), scalar @copies, "$cs: all copies left alone");
+        run_ticmambo(IgnoreCase => $ic);
+        ok(!has($in, 'file.zip') && !has($in, 'FILE.ZIP'), "IgnoreCase $ic: the file itself moved, not a copy");
+        is(scalar(grep { has($in, $_) } @copies), scalar @copies, "IgnoreCase $ic: all copies left alone");
     }
 
     setup();
@@ -280,10 +280,10 @@ subtest 'copies renamed by the mailer' => sub {
     setup();
     put($in, 'FILE.ZIP.1', $c);
     put($in, 'f.tic', std_tic('file.zip', $c));
-    run_ticmambo(FileNamesCaseSensitive => 'Yes', WaitForFileDays => 3);
-    ok(has($in, 'FILE.ZIP.1') && has($in, 'f.tic'), 'Yes: copy in other case ignored');
-    run_ticmambo(FileNamesCaseSensitive => 'No');
-    ok(has($dest, 'file.zip'), 'No: copy in other case moved under tic name');
+    run_ticmambo(IgnoreCase => 'No', WaitForFileDays => 3);
+    ok(has($in, 'FILE.ZIP.1') && has($in, 'f.tic'), 'No: copy in other case ignored');
+    run_ticmambo(IgnoreCase => 'Yes');
+    ok(has($dest, 'file.zip'), 'Yes: copy in other case moved under tic name');
 
     setup();
     put($in, 'file.zip.1', $c);
@@ -414,25 +414,25 @@ subtest 'line endings and keyword formatting' => sub {
     }
 };
 
-subtest 'FileNamesCaseSensitive' => sub {
+subtest 'IgnoreCase' => sub {
     # The same on every file system, Windows included.
     setup();
     put($in, 'file.zip', 'x');
     put($in, 'f.tic', tic_text('File FILE.ZIP', 'Crc ' . crc('x')));
-    run_ticmambo(FileNamesCaseSensitive => 'Yes', WaitForFileDays => 3);
-    ok(has($in, 'f.tic') && has($in, 'file.zip'), 'Yes: different case is not found');
-    run_ticmambo(FileNamesCaseSensitive => 'No');
-    ok(has($dest, 'file.zip'), 'No: found and moved under its own name');
+    run_ticmambo(IgnoreCase => 'No', WaitForFileDays => 3);
+    ok(has($in, 'f.tic') && has($in, 'file.zip'), 'No: different case is not found');
+    run_ticmambo(IgnoreCase => 'Yes');
+    ok(has($dest, 'file.zip'), 'Yes: found and moved under its own name');
 
     setup();
     put($in, 'file.zip', 'x');
     put($in, 'f.tic', tic_text('File FILE.ZIP', 'Crc ' . crc('x')));
     run_ticmambo(WaitForFileDays => 3);
     if ($IS_WIN) {
-        ok(has($dest, 'file.zip'), 'default on Windows: No');
+        ok(has($dest, 'file.zip'), 'default on Windows: Yes');
     }
     else {
-        ok(has($in, 'file.zip') && has($in, 'f.tic'), 'default outside Windows: Yes');
+        ok(has($in, 'file.zip') && has($in, 'f.tic'), 'default outside Windows: No');
     }
 };
 
@@ -446,7 +446,7 @@ subtest 'non-ASCII names' => sub {
     setup();
     put($in, 'тЕСТ.ZIP', 'kirill');
     put($in, 'b.tic', tic_text('Lfile ' . encode('cp866', 'Тест.zip'), 'Crc ' . crc('kirill')));
-    run_ticmambo(FileNamesCaseSensitive => 'No');
+    run_ticmambo(IgnoreCase => 'Yes');
     ok(has($dest, 'тЕСТ.ZIP'), 'case insensitive Cyrillic match');
 
     setup();

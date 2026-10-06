@@ -30,12 +30,14 @@ DestPath d:\fido\inbound\fecho
 ; Encoding of file names in tics. Names are converted from it to the file
 ; system encoding. Default: cp866.
 
-;FileNamesCaseSensitive Yes
+;IgnoreCase No
 ;
-; Yes - the file of a tic and its renamed copies must have the same case
-; as the name in the tic. No - case is ignored. This does not depend on
-; the file system: on Windows too, Yes means FILE.ZIP in a tic does not
-; match file.zip. Default: No on Windows, Yes elsewhere.
+; Case of file names when looking for the file of a tic and its renamed
+; copies (keywords in tics are always case insensitive). Yes - case is
+; ignored. No - the file must have the same case as the name in the tic.
+; This does not depend on the file system: on Windows too, No means
+; FILE.ZIP in a tic does not match file.zip. Default: Yes on Windows,
+; No elsewhere.
 
 ;UseCreationTime Yes
 ;
