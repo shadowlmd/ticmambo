@@ -67,6 +67,22 @@ DestPath d:\fido\inbound\fecho
 ; Yes - set the current time on good files when moving them.
 ; Default: No.
 
+;FixShortName No
+;
+; Windows: for file echo processors that only understand File and open
+; the file by its short (8.3) name. If the tic has Lfile or Fullname that
+; differs from File, the short name that Windows gave the file in DestPath
+; is compared with File (case insensitively), and if they differ, File in
+; the tic is replaced with it. If the file has no short name (8.3 names
+; are disabled on the volume), the tic is left as it is and a warning is
+; logged. Ignored on other systems. Default: No.
+
+;AddFullname No
+;
+; Yes - add Fullname with the value of Lfile to tics that have Lfile but
+; no Fullname, for file echo processors that understand Fullname but not
+; Lfile. Default: No.
+
 ;OverwriteExisting No
 ;
 ; Yes - overwrite files in DestPath and CorruptTicPath. No - if a file or

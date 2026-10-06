@@ -16,6 +16,8 @@ use Encode qw(encode decode);
 use Encode::Locale;
 use Compress::Zlib qw(crc32);
 use FindBin;
+use File::Spec;
+require Win32 if $^O eq 'MSWin32';
 
 binmode Test::More->builder->$_, ':encoding(console_out)' for qw(output failure_output todo_output);
 
@@ -656,6 +658,120 @@ subtest 'TouchFiles' => sub {
     put($in, 'f.tic', std_tic('f.zip', 'x'), 10);
     run_ticmambo(TouchFiles => 'No');
     ok(time - (stat catfile($dest, 'f.zip'))[9] > 9 * $DAY, 'No: mtime preserved');
+};
+
+subtest 'AddFullname' => sub {
+    my $c = 'long';
+    my $lfile = encode('cp866', 'Длинное имя.zip');
+    my $tic = tic_text('Area TEST', 'File DLINNO~1.ZIP', "Lfile $lfile", 'Crc ' . crc($c), 'Seenby 2:5020/1');
+    my $want = tic_text('Area TEST', 'File DLINNO~1.ZIP', "Lfile $lfile", "Fullname $lfile",
+        'Crc ' . crc($c), 'Seenby 2:5020/1');
+
+    setup();
+    put($in, 'Длинное имя.zip', $c);
+    put($in, 'f.tic', $tic, 10);
+    run_ticmambo(AddFullname => 'Yes');
+    is(slurp(catfile($dest, 'f.tic')), $want, 'Fullname added after Lfile, the rest intact');
+    ok(time - (stat catfile($dest, 'f.tic'))[9] > 9 * $DAY, 'tic mtime preserved');
+    ok(!has($dest, 'f.tic.tmp'), 'no temporary file left');
+    like(log_text(), qr/f\.tic: added Fullname/, 'logged');
+
+    setup();
+    put($in, 'Длинное имя.zip', $c);
+    put($in, 'f.tic', $tic);
+    run_ticmambo(AddFullname => 'No');
+    is(slurp(catfile($dest, 'f.tic')), $tic, 'No: tic unchanged');
+
+    setup();
+    put($in, 'f.zip', $c);
+    put($in, 'f.tic', "File F.ZIP\nCrc " . crc($c) . "\nLfile f.zip");
+    run_ticmambo(AddFullname => 'Yes');
+    is(slurp(catfile($dest, 'f.tic')), "File F.ZIP\nCrc " . crc($c) . "\nLfile f.zip\nFullname f.zip",
+        'last line without EOL, LF line endings');
+
+    for my $t ([has_fullname => tic_text('File f.zip', 'Lfile f.zip', 'Fullname f.zip', 'Crc ' . crc($c))],
+               [no_lfile => tic_text('File f.zip', 'Fullname f.zip', 'Crc ' . crc($c))],
+               [no_long => tic_text('File f.zip', 'Crc ' . crc($c))]) {
+        setup();
+        put($in, 'f.zip', $c);
+        put($in, 'f.tic', $t->[1]);
+        run_ticmambo(AddFullname => 'Yes');
+        is(slurp(catfile($dest, 'f.tic')), $t->[1], "$t->[0]: tic unchanged");
+    }
+
+    for my $t (['empty Fullname before Lfile', ['File F.ZIP', 'Fullname', 'Lfile f.zip'],
+                ['File F.ZIP', 'Fullname f.zip', 'Lfile f.zip']],
+               ['empty Fullname after Lfile', ['File F.ZIP', 'Lfile f.zip', "Fullname \t"],
+                ['File F.ZIP', 'Lfile f.zip', "Fullname \tf.zip"]]) {
+        setup();
+        put($in, 'f.zip', $c);
+        put($in, 'f.tic', tic_text(@{$t->[1]}, 'Crc ' . crc($c)));
+        run_ticmambo(AddFullname => 'Yes');
+        is(slurp(catfile($dest, 'f.tic')), tic_text(@{$t->[2]}, 'Crc ' . crc($c)), "$t->[0]: filled in");
+    }
+
+    setup();
+    my $bom = "\xEF\xBB\xBF" . tic_text('Lfile f.zip', 'Crc ' . crc($c));
+    put($in, 'f.zip', $c);
+    put($in, 'f.tic', $bom);
+    run_ticmambo(AddFullname => 'Yes', TicCharset => 'UTF-8');
+    is(slurp(catfile($dest, 'f.tic')), $bom, 'BOM before Lfile: tic unchanged');
+    like(log_text(), qr/cannot find the line to edit \(adding Fullname\)/, 'BOM before Lfile: logged');
+    unlike(log_text(), qr/added Fullname/, 'BOM before Lfile: no false success');
+
+    setup();
+    put($in, 'f.tic', tic_text('File f.zip', 'Lfile f.zip', 'Crc ' . crc($c)), 10);
+    run_ticmambo(AddFullname => 'Yes', WaitForFileDays => 3);
+    is(slurp(catfile($dest, 'f.tic')), tic_text('File f.zip', 'Lfile f.zip', 'Crc ' . crc($c)),
+        'orphan tic unchanged');
+
+    setup();
+    put($in, 'Длинное имя.zip', $c);
+    put($in, 'f.tic', $tic);
+    mkdir catfile($dest, 'f.tic.tmp') or die $!;
+    run_ticmambo(AddFullname => 'Yes');
+    is(slurp(catfile($dest, 'f.tic')), $tic, 'cannot write: tic moved unchanged');
+    ok(has($dest, 'Длинное имя.zip'), 'cannot write: file moved anyway');
+    like(log_text(), qr/f\.tic: cannot edit \(added Fullname\)/, 'cannot write: logged');
+    dump_log_on_fail();
+};
+
+subtest 'FixShortName' => sub {
+    my $c = 'long';
+    my $tic = tic_text('File WRONG~9.ZIP', 'Lfile Long File Name.zip', 'Crc ' . crc($c));
+
+    setup();
+    put($in, 'Long File Name.zip', $c);
+    put($in, 'f.tic', $tic);
+    run_ticmambo(FixShortName => 'Yes');
+    ok(has($dest, 'Long File Name.zip'), 'file moved');
+    my $short = $IS_WIN && Win32::GetShortPathName(catfile($dest, fsn('Long File Name.zip')));
+    if (!$IS_WIN) {
+        is(slurp(catfile($dest, 'f.tic')), $tic, 'not Windows: tic unchanged');
+    }
+    elsif ($short =~ /Long File Name/) {
+        is(slurp(catfile($dest, 'f.tic')), $tic, 'no 8.3 names on this volume: tic unchanged');
+        like(log_text(), qr/has no short name/, 'logged');
+    }
+    else {
+        $short = (File::Spec->splitpath($short))[2];
+        is(slurp(catfile($dest, 'f.tic')), tic_text("File $short", 'Lfile Long File Name.zip', 'Crc ' . crc($c)),
+            "File replaced with $short");
+    }
+
+    setup();
+    put($in, 'Long File Name.zip', $c);
+    put($in, 'f.tic', $tic);
+    run_ticmambo(FixShortName => 'No');
+    is(slurp(catfile($dest, 'f.tic')), $tic, 'No: tic unchanged');
+
+    setup();
+    put($in, 'f.zip', $c);
+    put($in, 'f.tic', tic_text('File F.ZIP', 'Lfile f.zip', 'Crc ' . crc($c)));
+    run_ticmambo(FixShortName => 'Yes');
+    is(slurp(catfile($dest, 'f.tic')), tic_text('File F.ZIP', 'Lfile f.zip', 'Crc ' . crc($c)),
+        'long name equal to File: tic unchanged');
+    dump_log_on_fail();
 };
 
 subtest 'separate FilesPath' => sub {

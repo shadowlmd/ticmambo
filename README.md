@@ -53,7 +53,16 @@ file found there:
    Files that don't match are never touched.
 
 Nothing in `DestPath` is left hidden: the hidden attribute is cleared on
-every file and tic moved there. Tics are never modified.
+every file and tic moved there.
+
+Tics are not modified unless `FixShortName` or `AddFullname` is set. With
+them, a tic that has been moved to `DestPath` together with its file is
+edited afterwards: `File` is replaced with the short name that Windows gave
+the file, and `Fullname` is added next to `Lfile`, for file echo processors
+that don't understand `Lfile`. Only those lines change; the rest of the tic
+stays byte for byte. The new tic is written to a temporary file that then
+replaces the original, so a failed write never leaves a truncated tic. If
+the tic cannot be edited, it is left as it was and a warning is logged.
 
 The age of a tic is based on its creation time where it is available
 (Windows; Linux via `statx(2)`), and on its modification time otherwise.
@@ -65,7 +74,7 @@ Perl 5.16 or later with the following modules:
 - `Encode`, `Compress::Zlib`, `Cwd`, `File::Copy`, `File::Spec`, `POSIX`
   (part of standard Perl);
 - `Encode::Locale`;
-- `Win32::File` (Windows only).
+- `Win32` and `Win32::File` (Windows only).
 
 Strawberry Perl includes all of them. On Linux, `Encode::Locale` is usually
 available as a distribution package (for example `libencode-locale-perl` on
@@ -114,7 +123,7 @@ prove t
 
 The tests run TicMambo on temporary directories. They cover matching and
 non-matching files, renamed copies, malformed and malicious tics, character
-sets, case insensitivity, and config errors. Tests that need Windows
+sets, case insensitivity, tic editing, and config errors. Tests that need Windows
 (hidden attributes, open files) or Unix (symlinks, FIFOs, permissions, a
 sparse 2 GB tic) are skipped on other systems.
 

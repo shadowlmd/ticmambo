@@ -23,7 +23,10 @@ use Compress::Zlib qw(crc32);
 use POSIX qw(strftime);
 
 my $IS_WIN = $^O eq 'MSWin32';
-require Win32::File if $IS_WIN;
+if ($IS_WIN) {
+    require Win32;
+    require Win32::File;
+}
 
 # Perl's stat has no birth time; on Linux it is available via statx(2).
 my $SYS_statx = $^O eq 'linux' && eval { require 'syscall.ph'; SYS_statx() };
@@ -45,6 +48,8 @@ my %OPTIONS = (
     DeleteOrphanTics       => ['bool',    0],
     WaitForHiddenTicDays   => ['days',    7],
     TouchFiles             => ['bool',    0],
+    FixShortName           => ['bool',    0],
+    AddFullname            => ['bool',    0],
     OverwriteExisting      => ['bool',    0],
     MaxTicSize             => ['int',     65536],
     CorruptTicAction       => ['action',  'move'],
@@ -283,10 +288,12 @@ sub process_tic {
         }
         logmsg('info', "$tic_disp: $file_disp is good, moving"
             . ($dest_name eq $file ? '' : ' as ' . disp($dest_name)));
-        if (move_files($cfg{DestPath}, [$file_path, $dest_name], [$tic_path, $tic]) && $cfg{TouchFiles}) {
+        return unless move_files($cfg{DestPath}, [$file_path, $dest_name], [$tic_path, $tic]);
+        if ($cfg{TouchFiles}) {
             utime undef, undef, File::Spec->catfile($cfg{DestPath}, $dest_name)
                 or logmsg('warn', "cannot touch " . disp($dest_name) . ": $!");
         }
+        edit_tic($tic, $data, \%kw, $dest_name);
         return;
     }
     my $why = @why ? join('; ', @why) : 'no file ' . join(' / ', @names);
@@ -301,6 +308,113 @@ sub process_tic {
     else {
         logmsg('info', "$tic_disp: $why, moving tic");
         move_files($cfg{DestPath}, [$tic_path, $tic]);
+    }
+}
+
+# Applies FixShortName and AddFullname to a tic already moved to DestPath
+# together with its file $dest_name. $data is the original tic. On failure
+# the tic is left as it is.
+sub edit_tic {
+    my ($tic, $data, $kw, $dest_name) = @_;
+    my $tic_disp = disp($tic);
+    my $long = length($kw->{lfile} // '') ? $kw->{lfile} : $kw->{fullname};
+    my (%set, %add);
+
+    # File echo processors that only know File open the file by its short
+    # name, which Windows generates on its own.
+    if ($IS_WIN && $cfg{FixShortName} && length($long // '') && length($kw->{file} // '')
+        && fc $long ne fc $kw->{file})
+    {
+        my $path = File::Spec->catfile($cfg{DestPath}, $dest_name);
+        my $short = Win32::GetShortPathName($path);
+        $short = disp((File::Spec->splitpath($short))[2]) if defined $short;
+        if (!defined $short) {
+            logmsg('warn', "$tic_disp: cannot get the short name of " . disp($dest_name));
+        }
+        elsif ($short !~ /^[^. "*+,\/:;<=>?\[\\\]|]{1,8}(?:\.[^. "*+,\/:;<=>?\[\\\]|]{1,3})?\z/) {
+            logmsg('warn', "$tic_disp: " . disp($dest_name) . ' has no short name, File left as is');
+        }
+        elsif (fc $short eq fc $kw->{file}) {
+            logmsg('debug', "$tic_disp: short name $short matches File");
+        }
+        elsif (defined(my $bytes = eval { $cfg{TicCharset}->encode($short, Encode::FB_CROAK | Encode::LEAVE_SRC) })) {
+            $set{file} = [$bytes, "File $kw->{file} -> $short"];
+        }
+        else {
+            logmsg('warn', "$tic_disp: short name $short cannot be represented in TicCharset");
+        }
+    }
+
+    if ($cfg{AddFullname} && length($kw->{lfile} // '') && !length($kw->{fullname} // '')) {
+        if (defined $kw->{fullname}) {
+            $set{fullname} = [undef, 'filled in empty Fullname'];
+        }
+        else {
+            $add{lfile} = 'Fullname';
+        }
+    }
+
+    return unless %set || %add;
+
+    # Edit the raw bytes, so that everything else stays exactly as it was.
+    my @parts = split /(\r\n|\r|\n)/, $data, -1;
+    my ($eol) = $data =~ /(\r\n|\r|\n)/;
+    $eol //= "\r\n";
+    my (%done, %value, @what);
+    for (my $i = 0; $i < @parts; $i += 2) {
+        my ($pre, $key, $value) = $parts[$i] =~ /^([ \t]*(\S+)[ \t]*)(.*?)[ \t]*\z/a or next;
+        $key = lc $key;
+        next if $done{$key}++;
+        $value{$key} = $value;
+        if (my $s = $set{$key}) {
+            # A value from another line is filled in after the loop.
+            $s->[2] = $i;
+            $s->[3] = $pre =~ /[ \t]\z/ ? $pre : "$pre ";
+        }
+        if (defined(my $name = delete $add{$key})) {
+            my $line = "$name $value";
+            push @what, "added $name";
+            if ($i + 1 < @parts) {
+                splice @parts, $i + 2, 0, $line, $parts[$i + 1];
+            }
+            else {
+                push @parts, $eol, $line;
+            }
+            $i += 2;
+        }
+    }
+    $set{fullname}[0] = $value{lfile} if $set{fullname};
+    for my $key (sort keys %set) {
+        my ($bytes, $what, $i, $pre) = @{$set{$key}};
+        if (defined $i && defined $bytes) {
+            $parts[$i] = $pre . $bytes;
+            push @what, $what;
+        }
+        else {
+            logmsg('warn', "$tic_disp: cannot find the line to edit ($what)");
+        }
+    }
+    logmsg('warn', "$tic_disp: cannot find the line to edit (adding $_)") for values %add;
+    return unless @what;
+
+    my $path = File::Spec->catfile($cfg{DestPath}, $tic);
+    my $tmp = "$path.tmp";
+    my $fh;
+    my $ok = open($fh, '>:raw', $tmp) && print({$fh} join('', @parts)) && close($fh);
+    my $err = $!;
+    if ($ok) {
+        my @st = stat $path;
+        utime @st[8, 9], $tmp if @st;
+        $ok = rename $tmp, $path;
+        $err = $!;
+    }
+    if ($ok) {
+        logmsg('info', "$tic_disp: " . join(', ', @what));
+    }
+    else {
+        logmsg('warn', "$tic_disp: cannot edit (" . join(', ', @what) . "): $err");
+        close $fh if defined $fh && defined fileno $fh;
+        unlink $tmp;
     }
 }
 
