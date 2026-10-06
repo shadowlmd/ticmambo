@@ -219,13 +219,13 @@ subtest 'copies renamed by the mailer' => sub {
     # the directory; several copies make an accidental pass unlikely.
     for my $cs (qw(Yes No)) {
         setup();
-        put($in, $_, $c) for 'file.zip.0', 'file.zip.1', 'file.zip.9', 'file.zi0', 'file.zia', 'file.z0a';
+        my @copies = ('file.zip.0', 'file.zip.1', 'file.zip.9', 'file.zi0', 'file.zia', 'file.z0a');
+        put($in, $_, $c) for @copies;
         put($in, $cs eq 'Yes' ? 'file.zip' : 'FILE.ZIP', $c);
         put($in, 'f.tic', std_tic('file.zip', $c));
         run_ticmambo(FileNamesCaseSensitive => $cs);
         ok(!has($in, 'file.zip') && !has($in, 'FILE.ZIP'), "$cs: the file itself moved, not a copy");
-        is(scalar(grep { has($in, $_) } 'file.zip.0', 'file.zip.1', 'file.zip.9', 'file.zi0', 'file.zia', 'file.z0a'),
-            6, "$cs: all copies left alone");
+        is(scalar(grep { has($in, $_) } @copies), scalar @copies, "$cs: all copies left alone");
     }
 
     setup();
@@ -247,7 +247,9 @@ subtest 'copies renamed by the mailer' => sub {
     ok(has($dest, 'Long Name.tar.gz'), 'Lfile copy');
 
     setup();
-    put($in, $_, $c) for 'file.zip1', 'xfile.zip.1', 'file.zip.', 'file.zi', 'file.zipx', 'file.zi_', 'file.zi0.1';
+    # Windows drops the trailing dot of 'file.zip.' and would create file.zip.
+    put($in, $_, $c) for 'file.zip1', 'xfile.zip.1', 'file.zi', 'file.zipx', 'file.zi_', 'file.zi0.1',
+        $IS_WIN ? () : 'file.zip.';
     put($in, 'f.tic', std_tic('file.zip', $c));
     run_ticmambo(WaitForFileDays => 3);
     ok(has($in, 'f.tic'), 'similar names that are not copies are ignored');
@@ -725,7 +727,7 @@ subtest 'UseCreationTime' => sub {
     setup();
     my $probe = put($root, 'probe', '');
     my $birth = $IS_WIN || $^O eq 'linux' && eval { require 'syscall.ph'; 1 }
-        && (`stat -c %W '$probe' 2>/dev/null` || 0) > 0;
+        && `stat -c %W '$probe' 2>/dev/null` =~ /^[1-9]/;
     for my $use (qw(Yes No)) {
         setup();
         put($in, 'f.tic', std_tic('none.zip', 'x'), 10);
@@ -784,8 +786,9 @@ subtest 'non-ASCII paths in a UTF-8 config' => sub {
     mkdir $in2 or die $!;
     put($in2, 'f.zip', 'x');
     put($in2, 'f.tic', std_tic('f.zip', 'x'));
-    my $cfg = put($root, 'utf8.cfg', encode('UTF-8', "TicPath $root/входящие\r\nDestPath $dest\r\n"
-        . "CorruptTicAction Keep\r\nLogFile $log\r\n"));
+    my ($r, $d, $l) = map { decode(locale_fs => $_) } $root, $dest, $log;
+    my $cfg = put($root, 'utf8.cfg', encode('UTF-8', "TicPath $r/входящие\r\nDestPath $d\r\n"
+        . "CorruptTicAction Keep\r\nLogFile $l\r\n"));
     is(system($^X, $SCRIPT, $cfg) >> 8, 0, 'config accepted');
     ok(has($dest, 'f.zip') && has($dest, 'f.tic'), 'TicPath found');
 };

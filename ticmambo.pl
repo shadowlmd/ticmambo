@@ -128,19 +128,19 @@ sub load_config {
     for my $name (qw(TicPath DestPath)) {
         die "'$name' is not set\n" unless defined $cfg{$name};
     }
-    die "'CorruptTicPath' must be set when CorruptTicAction is Move\n"
+    die "'CorruptTicPath' must be set when 'CorruptTicAction' is Move\n"
         if $cfg{CorruptTicAction} eq 'move' && !defined $cfg{CorruptTicPath};
 
     my %real;
     for my $name (grep { $OPTIONS{$_}[0] eq 'dir' && defined $cfg{$_} } keys %OPTIONS) {
-        die "$name " . disp($cfg{$name}) . " is not a directory\n" unless -d $cfg{$name};
-        $real{$name} = disp(abs_path($cfg{$name}));
+        die "'$name' " . disp($cfg{$name}) . " is not a directory\n" unless -d $cfg{$name};
+        $real{$name} = disp(abs_path($cfg{$name}) // $cfg{$name});
         $real{$name} = fc $real{$name} if $IS_WIN;
     }
     # Files must not be moved to the directory they are taken from.
     for my $to (grep { defined $real{$_} } qw(DestPath CorruptTicPath)) {
         for my $from (qw(TicPath FilesPath)) {
-            die "$to must not be the same directory as $from\n" if $real{$to} eq $real{$from};
+            die "'$to' must not be the same directory as '$from'\n" if $real{$to} eq $real{$from};
         }
     }
 }
@@ -254,7 +254,8 @@ sub process_tic {
 
     # Keywords are case insensitive; the first occurrence wins.
     my %kw;
-    for my $line (split /\r\n|\r|\n/, $cfg{TicCharset}->decode($data)) {
+    (my $text = $cfg{TicCharset}->decode($data)) =~ s/^\x{FEFF}//;
+    for my $line (split /\r\n|\r|\n/, $text) {
         my ($key, $value) = $line =~ /^[ \t]*(\S+)[ \t]*(.*?)[ \t]*\z/a or next;
         $kw{lc $key} //= $value;
     }
@@ -310,7 +311,7 @@ sub invalid_name {
     return 'contains control characters' if $name =~ /[\x00-\x1f\x7f]/;
     return 'refers to a directory' if $name eq '.' || $name eq '..';
     return 'is a reserved device name'
-        if $name =~ /^(?:CON|PRN|AUX|NUL|COM\d|LPT\d|CONIN\$|CONOUT\$)(?:\.|\z)/i;
+        if $name =~ /^(?:CON|PRN|AUX|NUL|(?:COM|LPT)[0-9\x{B9}\x{B2}\x{B3}]|CONIN\$|CONOUT\$)(?:\.|\z)/i;
     return undef;
 }
 
