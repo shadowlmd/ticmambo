@@ -1,0 +1,96 @@
+;
+; TicMambo configuration.
+;
+; Format: Keyword Value. Keywords are case insensitive.
+; Lines starting with ';' or '#' are comments.
+; Periods are whole days. Yes/No are boolean values.
+;
+
+TicPath d:\fido\inbound
+;
+; Where to look for tics. Required.
+
+;FilesPath d:\fido\inbound
+;
+; Where to look for files. Default: TicPath.
+; Besides the file named in the tic, its copies renamed by the mailer
+; (file.zip.1, file.zi0 and so on) are checked too. A matching copy is
+; moved to DestPath under the name from the tic.
+
+DestPath d:\fido\inbound\fecho
+;
+; Where to move files together with their tics. Required.
+; Set this directory as the inbound in your file echo processor's config.
+
+;TicCharset cp866
+;
+; Encoding of file names in tics. Names are converted from it to the file
+; system encoding. Default: cp866.
+
+;ForceCaseInsensitive No
+;
+; Yes - ignore case of file names when looking for the file of a tic.
+; Default: No.
+
+;UseCreationTime Yes
+;
+; Yes - file age is based on creation time, No - on modification time.
+; Creation time is supported on Windows and on Linux (via statx(2), if
+; syscall.ph is available and the file system stores creation time).
+; Otherwise modification time is used. Default: Yes.
+
+;WaitForFileDays 3
+;
+; How many days to wait for a file that matches the tic by Crc and Size.
+; After that see DeleteOrphanTics. Default: 3.
+
+;DeleteOrphanTics No
+;
+; Yes - delete tics for which no matching file arrived in time, No - move
+; them to DestPath without a file. Non-matching files are never touched.
+; Default: No.
+
+;WaitForHiddenTicDays 7
+;
+; Windows: how many days to skip a tic with the 'hidden' attribute (it may
+; still be being received). After that it is processed as usual.
+; 0 - do not wait. Files and tics moved to DestPath always have the
+; attribute cleared. Default: 7.
+
+;TouchFiles No
+;
+; Yes - set the current time on good files when moving them.
+; Default: No.
+
+;OverwriteExisting No
+;
+; Yes - overwrite files in DestPath and CorruptTicPath. No - if a file or
+; tic with the same name is already there, skip the tic until the next
+; run. Default: No.
+
+;MaxTicSize 65536
+;
+; Tics larger than this size (in bytes) are considered corrupt.
+; Default: 65536.
+
+;CorruptTicAction Move
+;
+; What to do with corrupt tics (too large, binary, no File/Lfile, Size is
+; not a number, file name with a path, drive letter, control characters,
+; '.', '..' or a device name such as CON or NUL):
+;   Move   - move to CorruptTicPath;
+;   Delete - delete;
+;   Keep   - leave in place (log only).
+; Default: Move.
+
+CorruptTicPath d:\fido\inbound\corrupt
+;
+; Where to move corrupt tics. Required with CorruptTicAction Move.
+
+LogFile d:\fido\log\ticmambo.log
+;
+; Log file (UTF-8). If not set, the log goes to stderr.
+
+;LogLevel info
+;
+; Log level: error, warn, info, debug. Default: info.
