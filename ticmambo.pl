@@ -485,9 +485,12 @@ sub name_key {
 sub tic_name {
     my ($name) = @_;
     return unless length $name;
-    # Windows drops them, so no file on disk has such a name.
-    return (undef, undef, 'ends with a dot or space, impossible on Windows')
-        if $IS_WIN && $name =~ /[. ]\z/;
+    # No file on disk can have such a name; the mailer stored it under
+    # some other one.
+    if ($IS_WIN) {
+        return (undef, undef, 'ends with a dot or space, impossible on Windows') if $name =~ /[. ]\z/;
+        return (undef, undef, 'contains one of <>"|?*, impossible on Windows') if $name =~ /[<>"|?*]/;
+    }
     my $fs_name = eval { encode(locale_fs => $name, Encode::FB_CROAK | Encode::LEAVE_SRC) };
     return (undef, undef, 'cannot be represented in the file system encoding') unless defined $fs_name;
     return (name_key($name), $fs_name);

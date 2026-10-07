@@ -625,13 +625,19 @@ subtest 'tic not valid in TicCharset is left alone' => sub {
 
 SKIP: {
     skip 'Win32 only', 1 unless $IS_WIN;
-    subtest 'name ending with a dot on Windows' => sub {
+    subtest 'names impossible on Windows' => sub {
         setup();
         put($in, 'file.zip', 'x');
         put($in, 'f.tic', tic_text('Lfile file.zip.', 'Crc ' . crc('x')), 10);
-        is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes'), 0, 'exit code');
-        ok(has($in, 'f.tic') && has($in, 'file.zip'), 'old tic not taken for an orphan');
-        like(log_text(), qr/\[ERROR\] f\.tic: Lfile file\.zip\.: ends with a dot or space/, 'error logged');
+        is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes'), 0, 'dot at the end: exit code');
+        ok(has($in, 'f.tic') && has($in, 'file.zip'), 'dot at the end: old tic not taken for an orphan');
+        like(log_text(), qr/\[ERROR\] f\.tic: Lfile file\.zip\.: ends with a dot or space/, 'dot at the end: error logged');
+
+        setup();
+        put($in, 'f.tic', tic_text('Lfile what?.zip', 'Crc ' . crc('x')), 10);
+        is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes'), 0, 'question mark: exit code');
+        ok(has($in, 'f.tic'), 'question mark: old tic not taken for an orphan');
+        like(log_text(), qr/\[ERROR\] f\.tic: Lfile what\?\.zip: contains one of/, 'question mark: error logged');
     };
 }
 
