@@ -550,31 +550,36 @@ subtest 'non-ASCII names' => sub {
     ok(has($in, 'd.tic'), 'wrong TicCharset: file not found, tic waits');
 };
 
-subtest 'names in another Unicode normalization form' => sub {
-    # As on macOS HFS+: the name on disk is decomposed, the one in the tic
-    # is not.
-    my $nfd = "\x{0438}\x{0306}\x{0436}\x{0438}\x{043A}.zip";    # и + breve
-    my $nfc = "\x{0439}\x{0436}\x{0438}\x{043A}.zip";
-    for my $ic (qw(No Yes)) {
+my $nfd = "\x{0438}\x{0306}\x{0436}\x{0438}\x{043A}.zip";    # и + breve
+my $nfc = "\x{0439}\x{0436}\x{0438}\x{043A}.zip";
+SKIP: {
+    # Not on Windows: the ANSI code page has no combining characters.
+    skip 'decomposed names cannot be represented in the file system encoding', 1
+        unless defined eval { encode(locale_fs => $nfd, Encode::FB_CROAK | Encode::LEAVE_SRC) };
+    subtest 'names in another Unicode normalization form' => sub {
+        # As on macOS HFS+: the name on disk is decomposed, the one in the tic
+        # is not.
+        for my $ic (qw(No Yes)) {
+            setup();
+            put($in, $nfd, 'x');
+            put($in, 'f.tic', tic_text('File ' . encode('cp866', $nfc), 'Crc ' . crc('x')));
+            run_ticmambo(IgnoreCase => $ic);
+            ok(has($dest, $nfd) && has($dest, 'f.tic'), "IgnoreCase $ic: found");
+        }
+
         setup();
-        put($in, $nfd, 'x');
+        put($in, $nfc, 'x');
+        put($in, 'f.tic', tic_text('File ' . encode('UTF-8', $nfd), 'Crc ' . crc('x')));
+        run_ticmambo(TicCharset => 'UTF-8');
+        ok(has($dest, $nfc), 'decomposed name in the tic: found');
+
+        setup();
+        put($in, "$nfd.1", 'x');
         put($in, 'f.tic', tic_text('File ' . encode('cp866', $nfc), 'Crc ' . crc('x')));
-        run_ticmambo(IgnoreCase => $ic);
-        ok(has($dest, $nfd) && has($dest, 'f.tic'), "IgnoreCase $ic: found");
-    }
-
-    setup();
-    put($in, $nfc, 'x');
-    put($in, 'f.tic', tic_text('File ' . encode('UTF-8', $nfd), 'Crc ' . crc('x')));
-    run_ticmambo(TicCharset => 'UTF-8');
-    ok(has($dest, $nfc), 'decomposed name in the tic: found');
-
-    setup();
-    put($in, "$nfd.1", 'x');
-    put($in, 'f.tic', tic_text('File ' . encode('cp866', $nfc), 'Crc ' . crc('x')));
-    run_ticmambo();
-    ok(has($dest, $nfc), 'renamed copy found, moved under the name from the tic');
-};
+        run_ticmambo();
+        ok(has($dest, $nfc), 'renamed copy found, moved under the name from the tic');
+    };
+}
 
 SKIP: {
     skip 'the file system encoding is set by the locale on Unix only', 1 if $IS_WIN;
