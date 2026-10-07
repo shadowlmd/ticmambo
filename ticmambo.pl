@@ -21,6 +21,7 @@ use File::Copy qw(move);
 use FindBin;
 use Compress::Zlib qw(crc32);
 use POSIX qw(strftime);
+use Unicode::Normalize qw(NFC);
 
 my $IS_WIN = $^O eq 'MSWin32';
 if ($IS_WIN) {
@@ -59,6 +60,10 @@ my %OPTIONS = (
 
 my %cfg;
 my $log_fh;
+# Set when a tic that may be good is left in InboundPath because DestPath
+# is not empty yet or because of an error that may be temporary: running
+# again after the file echo processor may move it to DestPath.
+my $rerun = 0;
 
 binmode STDERR, ':encoding(console_out)';
 
@@ -82,8 +87,9 @@ else {
 logmsg('debug', 'started, config ' . disp($cfg_file));
 
 opendir(my $dh, $cfg{InboundPath}) or do {
-    logmsg('error', 'cannot read InboundPath ' . disp($cfg{InboundPath}) . ": $!");
-    exit 1;
+    # It was a directory when the config was loaded, so this may be temporary.
+    logmsg('error', 'cannot read InboundPath ' . disp($cfg{InboundPath}) . ": $!, exit code 2");
+    exit 2;
 };
 # Tics are handled as they are read. An entry moved away in the meantime
 # may still be returned; process_tic skips what is no longer there.
@@ -92,8 +98,9 @@ while (defined(my $e = readdir $dh)) {
 }
 closedir $dh;
 
+logmsg('info', 'some tics are left for the next run, exit code 2') if $rerun;
 logmsg('debug', 'finished');
-exit 0;
+exit($rerun ? 2 : 0);
 
 
 sub load_config {
@@ -176,9 +183,12 @@ sub disp {
     return decode(locale_fs => $bytes);
 }
 
+# Returns 1 for a regular file, 0 for anything else (a symlink, a directory,
+# no such file), or undef with $! set if lstat fails for another reason.
 sub is_regular {
     my ($path) = @_;
-    return lstat($path) && -f _ && !-l _;
+    return -f _ ? 1 : 0 if lstat $path;
+    return $!{ENOENT} ? 0 : undef;
 }
 
 sub age_days {
@@ -228,7 +238,13 @@ sub process_tic {
     my $tic_path = File::Spec->catfile($cfg{InboundPath}, $tic);
     my $tic_disp = disp($tic);
 
-    unless (is_regular($tic_path)) {
+    my $regular = is_regular($tic_path);
+    unless (defined $regular) {
+        logmsg('error', "cannot stat $tic_disp: $!");
+        $rerun = 1;
+        return;
+    }
+    unless ($regular) {
         logmsg('debug', "$tic_disp is not a regular file, skipping");
         return;
     }
@@ -240,21 +256,29 @@ sub process_tic {
 
     open my $fh, '<:raw', $tic_path or do {
         logmsg('error', "cannot open $tic_disp: $!");
+        $rerun = 1;
         return;
     };
     my $data;
     unless (defined(read $fh, $data, $cfg{MaxTicSize} + 1)) {
         logmsg('error', "cannot read $tic_disp: $!");
+        $rerun = 1;
         return;
     }
     close $fh;
     return corrupt_tic($tic, 'size ' . (-s $tic_path) . ' exceeds MaxTicSize')
         if length $data > $cfg{MaxTicSize};
-    return corrupt_tic($tic, 'contains NUL bytes') if $data =~ /\0/;
+
+    my $text = eval { $cfg{TicCharset}->decode($data, Encode::FB_CROAK | Encode::LEAVE_SRC) };
+    unless (defined $text) {
+        logmsg('error', "$tic_disp: not valid in TicCharset, skipping");
+        return;
+    }
+    return corrupt_tic($tic, 'contains NUL characters') if $text =~ /\0/;
+    $text =~ s/^\x{FEFF}//;
 
     # Keywords are case insensitive; the first occurrence wins.
     my %kw;
-    (my $text = $cfg{TicCharset}->decode($data)) =~ s/^\x{FEFF}//;
     for my $line (split /\r\n|\r|\n/, $text) {
         my ($key, $value) = $line =~ /^[ \t]*(\S+)[ \t]*(.*?)[ \t]*\z/a or next;
         $kw{lc $key} //= $value;
@@ -263,7 +287,9 @@ sub process_tic {
     my $long_kw = length($kw{lfile} // '') ? 'Lfile' : 'Fullname';
     my $long = $kw{lc $long_kw} // '';
     my $short = $kw{file} // '';
-    for my $name (grep { length } $long, $short) {
+    # Fullname is checked even when Lfile is used: file echo processors may
+    # use it.
+    for my $name (grep { length } $kw{lfile} // '', $kw{fullname} // '', $short) {
         if (my $why = invalid_name($name)) {
             return corrupt_tic($tic, "file name '$name' $why");
         }
@@ -272,27 +298,35 @@ sub process_tic {
     return corrupt_tic($tic, "invalid Size '$kw{size}'")
         if defined $kw{size} && $kw{size} !~ /^[0-9]+\z/;
 
-    # Lfile (or Fullname) first, then File, then the copies of either that
-    # the mailer renamed; each is a separate pass over InboundPath. A File
-    # that differs from Lfile only in case names the same file and is not
-    # looked for. Copies that do not match are not reported.
-    $short = '' if length $long && fc $short eq fc $long;
+    # Lfile (or Fullname), then the copies of it that the mailer renamed,
+    # then File and its copies; each is a separate pass over InboundPath.
+    # A File that is the same as Lfile (but for case, with IgnoreCase) is
+    # not looked for again. Copies that do not match are not reported,
+    # unless they cannot be read.
+    $short = '' if length $long && name_key($short) eq name_key($long);
     my ($l, $l_fs, $l_why) = tic_name($long);
     my ($s, $s_fs, $s_why) = tic_name($short);
-    my $found = eval { (defined $l && find_file(\%kw, \$l_why, sub { $_[0] eq $l ? $_[1] : undef }))
-        || (defined $s && find_file(\%kw, \$s_why, sub { $_[0] eq $s ? $_[1] : undef }))
-        || ((defined $l || defined $s) && find_file(\%kw, undef, sub {
+    my $unread;
+    my $copies = sub {
+        my ($name, $fs_name) = @_;
+        return sub {
             my ($have) = @_;
-            # The names themselves have been checked already.
+            # The names themselves are looked for in their own passes.
             return undef if (defined $l && $have eq $l) || (defined $s && $have eq $s);
-            return $l_fs if defined $l && is_renamed_copy($have, $l);
-            return $s_fs if defined $s && is_renamed_copy($have, $s);
-            return undef;
-        })) };
+            return is_renamed_copy($have, $name) ? $fs_name : undef;
+        };
+    };
+    my $found = eval {
+        (defined $l && (find_file(\%kw, \$l_why, \$unread, sub { $_[0] eq $l ? $_[1] : undef })
+            || find_file(\%kw, undef, \$unread, $copies->($l, $l_fs))))
+        || (defined $s && (find_file(\%kw, \$s_why, \$unread, sub { $_[0] eq $s ? $_[1] : undef })
+            || find_file(\%kw, undef, \$unread, $copies->($s, $s_fs))))
+    };
     if ($@) {
         # Without a full search the tic must not be taken for an orphan.
         chomp(my $err = $@);
         logmsg('error', "$tic_disp: $err, skipping");
+        $rerun = 1;
         return;
     }
     if ($found) {
@@ -305,14 +339,25 @@ sub process_tic {
             utime undef, undef, File::Spec->catfile($cfg{DestPath}, $dest_name)
                 or logmsg('warn', "cannot touch " . disp($dest_name) . ": $!");
         }
-        edit_tic($tic, $data, \%kw, $long, $dest_name);
+        edit_tic($tic, $text, \%kw, $long, $dest_name);
         return;
     }
     my $why = join '; ',
         (length $long ? "$long_kw $long: " . ($l_why // 'not found') : ()),
         (length $short ? "File $short: " . ($s_why // 'not found') : ());
 
-    if (age_days($tic_path) < $cfg{WaitForFileDays}) {
+    if ($unread) {
+        # The matching file may be among those that could not be read, so
+        # the tic must not be taken for an orphan.
+        logmsg('info', "$tic_disp: $why, not all files could be checked, skipping");
+        $rerun = 1;
+    }
+    elsif ((length $long && !defined $l) || (length $short && !defined $s)) {
+        # The file may be there under a name that cannot be looked for.
+        # Running again will not change this.
+        logmsg('error', "$tic_disp: $why, skipping");
+    }
+    elsif (age_days($tic_path) < $cfg{WaitForFileDays}) {
         logmsg('info', "$tic_disp: $why, waiting");
     }
     elsif ($cfg{DeleteOrphanTics}) {
@@ -326,10 +371,11 @@ sub process_tic {
 }
 
 # Applies FixShortName and AddFullname to a tic already moved to DestPath
-# together with its file $dest_name. $data is the original tic, $long is
-# its Lfile (or Fullname). On failure the tic is left as it is.
+# together with its file $dest_name. $text is the original tic as text
+# without a BOM, $long is its Lfile (or Fullname). On failure the tic is
+# left as it is.
 sub edit_tic {
-    my ($tic, $data, $kw, $long, $dest_name) = @_;
+    my ($tic, $text, $kw, $long, $dest_name) = @_;
     my $tic_disp = disp($tic);
     my (%set, %add);
 
@@ -370,14 +416,7 @@ sub edit_tic {
     return unless %set || %add;
 
     # The tic is edited as text and written with CR LF line separators, as
-    # FTS-5006 requires. Text that does not decode cleanly would not come
-    # back the same, so such a tic is left alone.
-    my $text = eval { $cfg{TicCharset}->decode($data, Encode::FB_CROAK | Encode::LEAVE_SRC) };
-    unless (defined $text) {
-        logmsg('warn', "$tic_disp: not valid in TicCharset, cannot edit");
-        return;
-    }
-    $text =~ s/^\x{FEFF}//;
+    # FTS-5006 requires.
     my @lines = split /\r\n|\r|\n/, $text, -1;
     pop @lines if @lines > 1 && $lines[-1] eq '';
     # Lines are matched exactly as in process_tic, so every keyword in
@@ -426,40 +465,61 @@ sub invalid_name {
     return 'contains a path separator or drive letter' if $name =~ m{[/\\:]};
     return 'contains control characters' if $name =~ /[\x00-\x1f\x7f]/;
     return 'refers to a directory' if $name eq '.' || $name eq '..';
+    return 'refers to a tic' if $name =~ /\.tic\z/i;
     return 'is a reserved device name'
         if $name =~ /^(?:CON|PRN|AUX|NUL|(?:COM|LPT)[0-9\x{B9}\x{B2}\x{B3}]|CONIN\$|CONOUT\$)(?:\.|\z)/i;
     return undef;
 }
 
-# Returns a name from a tic as it is compared with names on disk (case
-# folded with IgnoreCase) and in the file system encoding; or undef, undef
-# and the reason why it cannot be looked for; or nothing for an empty name.
+# Returns a file name as it is compared with others: case folded with
+# IgnoreCase, and in one Unicode normalization form, since the same name
+# may be stored decomposed (macOS HFS+, for example).
+sub name_key {
+    my ($name) = @_;
+    return NFC($cfg{IgnoreCase} ? fc $name : $name);
+}
+
+# Returns a name from a tic as it is compared with names on disk (see
+# name_key) and in the file system encoding; or undef, undef and the reason
+# why it cannot be looked for; or nothing for an empty name.
 sub tic_name {
     my ($name) = @_;
     return unless length $name;
+    # Windows drops them, so no file on disk has such a name.
+    return (undef, undef, 'ends with a dot or space, impossible on Windows')
+        if $IS_WIN && $name =~ /[. ]\z/;
     my $fs_name = eval { encode(locale_fs => $name, Encode::FB_CROAK | Encode::LEAVE_SRC) };
     return (undef, undef, 'cannot be represented in the file system encoding') unless defined $fs_name;
-    return ($cfg{IgnoreCase} ? fc $name : $name, $fs_name);
+    return (name_key($name), $fs_name);
 }
 
 # Goes through InboundPath and returns [name on disk, name for DestPath] for
 # the first regular file that matches the tic among those $want accepts.
-# $want gets the name on disk as text (case folded with IgnoreCase) and as
-# is, and returns the name for DestPath or undef. Unless $why is undef, the
-# reason why the first such file does not match is stored in $$why. Dies
-# if InboundPath cannot be read.
+# $want gets the name on disk as text (see name_key) and as is, and returns
+# the name for DestPath or undef. Unless $why is undef, the reason why the
+# first such file does not match is stored in $$why. $$unread is set if such
+# a file cannot be read; this is logged. Dies if InboundPath cannot be read.
 sub find_file {
-    my ($kw, $why, $want) = @_;
+    my ($kw, $why, $unread, $want) = @_;
 
     opendir(my $dh, $cfg{InboundPath})
         or die 'cannot read InboundPath ' . disp($cfg{InboundPath}) . ": $!\n";
     while (defined(my $e = readdir $dh)) {
         my $text = disp($e);
-        my $dest_name = $want->($cfg{IgnoreCase} ? fc $text : $text, $e) // next;
+        my $dest_name = $want->(name_key($text), $e) // next;
         my $path = File::Spec->catfile($cfg{InboundPath}, $e);
-        next unless is_regular($path);
-        if (defined(my $m = mismatch($kw, $path))) {
+        my $regular = is_regular($path);
+        if (defined $regular && !$regular) {
+            logmsg('debug', "$text is not a regular file, skipping");
+            next;
+        }
+        my ($m, $io) = defined $regular ? mismatch($kw, $path) : ("cannot stat: $!", 1);
+        if (defined $m) {
             $$why //= $m if $why;
+            if ($io) {
+                logmsg('error', 'cannot check ' . disp($e) . ": $m");
+                $$unread = 1;
+            }
             next;
         }
         closedir $dh;
@@ -485,7 +545,8 @@ sub is_renamed_copy {
     return $i < length $name && substr($cand, $i) =~ /^[0-9A-Za-z]+\z/;
 }
 
-# Returns the reason why the file does not match the tic, or undef.
+# Returns the reason why the file does not match the tic and, if the file
+# cannot be read, true; or undef.
 sub mismatch {
     my ($kw, $path) = @_;
 
@@ -493,13 +554,13 @@ sub mismatch {
     return 'no Crc in tic' unless defined $crc && length $crc;
     return "invalid Crc '$crc'" unless $crc =~ /^[0-9A-Fa-f]{8}\z/;
 
-    open my $fh, '<:raw', $path or return "cannot open: $!";
+    open my $fh, '<:raw', $path or return ("cannot open: $!", 1);
     my $size = -s $fh;
     return "size is $size, tic says $kw->{size}" if defined $kw->{size} && $kw->{size} != $size;
 
     my ($buf, $sum, $n) = ('', 0);
     $sum = crc32($buf, $sum) while $n = read $fh, $buf, 65536;
-    return "read error: $!" unless defined $n;
+    return ("read error: $!", 1) unless defined $n;
     close $fh;
 
     $sum = sprintf '%08X', $sum;
@@ -507,15 +568,23 @@ sub mismatch {
     return undef;
 }
 
-# Moves [path, name] pairs to $dir, all or none. Nothing is moved if a file
-# with the same name is already there, unless OverwriteExisting is set.
+# Moves [path, name] pairs to $dir, all or none. Nothing is moved if a
+# directory with the same name is there, or a file, unless OverwriteExisting
+# is set.
 sub move_files {
     my ($dir, @files) = @_;
 
+    # move() would put the file into the directory. This is checked first:
+    # running again does not help with it.
+    if (my ($f) = grep { -d File::Spec->catfile($dir, $_->[1]) } @files) {
+        logmsg('error', disp($f->[1]) . ' is a directory in ' . disp($dir) . ', skipping');
+        return 0;
+    }
     unless ($cfg{OverwriteExisting}) {
         for my $f (@files) {
             if (-e File::Spec->catfile($dir, $f->[1])) {
                 logmsg('warn', disp($f->[1]) . ' already exists in ' . disp($dir) . ', skipping');
+                $rerun = 1 if $dir eq $cfg{DestPath};
                 return 0;
             }
         }
@@ -526,6 +595,7 @@ sub move_files {
         my $dst = File::Spec->catfile($dir, $name);
         unless (move($src, $dst)) {
             logmsg('error', 'cannot move ' . disp($src) . ' to ' . disp($dst) . ": $!");
+            $rerun = 1 if $dir eq $cfg{DestPath};
             # Do not leave a file in DestPath without its tic.
             for my $m (reverse @moved) {
                 move($m->[1], $m->[0])

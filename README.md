@@ -28,16 +28,17 @@ TicMambo handles every `*.tic` file in `InboundPath`:
 
 1. **Hidden tic** (Windows). A tic with the hidden attribute may still be
    being received, so it is skipped for `WaitForHiddenTicDays` days.
-2. **Corrupt tic.** The tic is larger than `MaxTicSize`, contains NUL bytes,
-   has no `File`/`Lfile`, has a `Size` that is not a decimal number, or
-   names a file with a path, a drive letter, control characters, `.`, `..`
-   or a device name such as `CON` or `NUL`. Such a tic is moved to
+2. **Corrupt tic.** The tic is larger than `MaxTicSize`, contains NUL
+   characters, has no `File`/`Lfile`, has a `Size` that is not a decimal
+   number, or names a file with a path, a drive letter, control characters,
+   `.`, `..`, a device name such as `CON` or `NUL`, or another tic. Such a tic is moved to
    `CorruptTicPath`, deleted, or left in place, depending on
    `CorruptTicAction`.
 3. **Looking for the file.** The file is looked for by `Lfile` (or
    `Fullname`), then by `File`. Copies that the mailer renamed because a
    file with the same name already existed are found too: `file.zip.1`
-   (binkd "postfix" style) and `file.zi0` (binkd "extension" style).
+   (binkd "postfix" style) and `file.zi0` (binkd "extension" style). The
+   copies of `Lfile` are looked for before `File`.
 4. **Match.** A file matches if its CRC-32 equals `Crc` and, when the tic has
    a `Size`, its size equals `Size`. The first matching file is moved to
    `DestPath` together with the tic, and a renamed copy gets the name from
@@ -58,8 +59,8 @@ adapt tics to file echo processors that don't understand `Lfile`.
 
 Perl 5.16 or later with the following modules:
 
-- `Encode`, `Compress::Zlib`, `Cwd`, `File::Copy`, `File::Spec`, `POSIX`
-  (part of standard Perl);
+- `Encode`, `Compress::Zlib`, `Cwd`, `File::Copy`, `File::Spec`, `POSIX`,
+  `Unicode::Normalize` (part of standard Perl);
 - `Encode::Locale`;
 - `Win32` and `Win32::File` (Windows only).
 
@@ -82,9 +83,16 @@ same script or scheduler job. Do not start it from a mailer that can run
 several sessions at once: TicMambo has no locking, and two copies running
 at the same time get in each other's way.
 
-The exit code is 0 after a normal run, and 1 if the config is invalid or
-the log file or the inbound directory cannot be opened. Problems with
-individual tics and files are logged and do not stop the run.
+The exit code is 0 after a normal run, 1 on an error, and 2 in the cases
+described below. Problems with individual tics and files are logged and do
+not stop the run.
+
+The exit code is 2 if a tic that may be good was left in `InboundPath`
+because a file or tic with the same name is already in `DestPath`, or
+because of an error that may be temporary (a tic, a file or `InboundPath`
+could not be read, or a move to `DestPath` failed). Run TicMambo again after
+the file echo processor has emptied `DestPath`. Limit the number of such
+reruns: if the cause does not go away, TicMambo returns 2 every time.
 
 ## Configuration
 

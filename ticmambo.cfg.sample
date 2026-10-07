@@ -18,7 +18,7 @@ InboundPath d:\fido\inbound
 DestPath d:\fido\inbound\fecho
 
 ; Encoding of file names in tics. Names are converted from it to the file
-; system encoding. Default: cp866.
+; system encoding. Tics not valid in it are left alone. Default: cp866.
 ;TicCharset cp866
 
 ; Case of file names when looking for the file of a tic and its renamed
@@ -70,18 +70,21 @@ DestPath d:\fido\inbound\fecho
 ; Lfile. Default: No.
 ;AddFullname No
 
-; Yes - overwrite files in DestPath and CorruptTicPath. No - if a file or
-; tic with the same name is already there, skip the tic until the next
-; run. Default: No.
+; Yes - overwrite files in DestPath and CorruptTicPath. This is not safe:
+; a file moved earlier in the same run may be overwritten too, leaving its
+; tic with another file. No - if a file or tic with the same name is
+; already there, skip the tic until the next run; if this happens in
+; DestPath, the exit code is 2. Default: No.
 ;OverwriteExisting No
 
 ; Tics larger than this size (in bytes) are considered corrupt.
 ; Default: 65536.
 ;MaxTicSize 65536
 
-; What to do with corrupt tics (too large, binary, no File/Lfile, Size is
-; not a number, file name with a path, drive letter, control characters,
-; '.', '..' or a device name such as CON or NUL):
+; What to do with corrupt tics (too large, NUL characters, no File/Lfile,
+; Size is not a number, file name with a path, drive letter, control
+; characters, '.', '..', a device name such as CON or NUL, or a name ending
+; in .tic):
 ;   Move   - move to CorruptTicPath;
 ;   Delete - delete;
 ;   Keep   - leave in place (log only).
