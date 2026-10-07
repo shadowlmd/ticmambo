@@ -1301,6 +1301,8 @@ subtest 'config errors' => sub {
     is(run_ticmambo(DestPath => $in), 1, 'DestPath is InboundPath');
     is(run_ticmambo(DestPath => "$in/../in"), 1, 'DestPath is InboundPath, other spelling');
     is(run_ticmambo(CorruptTicPath => $in), 1, 'CorruptTicPath is InboundPath');
+    mkdir catfile($root, 'IN');
+    is(run_ticmambo(DestPath => catfile($root, 'IN')), 1, 'DestPath is InboundPath but for case');
     is(system($^X, $SCRIPT, catfile($root, 'missing.cfg')) >> 8, 1, 'missing config file');
     is(run_ticmambo(LogLevel => undef, touchfiles => "yes", LOGLEVEL => "INFO"), 0, 'keywords and values are case insensitive');
 };

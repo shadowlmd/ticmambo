@@ -143,10 +143,10 @@ sub load_config {
     my %real;
     for my $name (grep { $OPTIONS{$_}[0] eq 'dir' && defined $cfg{$_} } keys %OPTIONS) {
         die "'$name' " . disp($cfg{$name}) . " is not a directory\n" unless -d $cfg{$name};
-        $real{$name} = disp(abs_path($cfg{$name}) // $cfg{$name});
-        $real{$name} = fc $real{$name} if $IS_WIN;
+        $real{$name} = fc NFC(disp(abs_path($cfg{$name}) // $cfg{$name}));
     }
-    # Files must not be moved to the directory they are taken from.
+    # Files must not be moved to the directory they are taken from. Paths
+    # are compared ignoring case, whatever the file system.
     for my $to (grep { defined $real{$_} } qw(DestPath CorruptTicPath)) {
         die "'$to' must not be the same directory as 'InboundPath'\n" if $real{$to} eq $real{InboundPath};
     }
