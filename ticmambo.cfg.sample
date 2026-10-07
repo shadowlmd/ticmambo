@@ -6,17 +6,14 @@
 ; The file is read as UTF-8 or, if it is not valid UTF-8, in the system
 ; encoding (the ANSI code page on Windows).
 
-; Where to look for tics. Required.
-TicPath d:\fido\inbound
-
-; Where to look for files. Besides the file named in the tic, its copies
-; renamed by the mailer (file.zip.1, file.zi0 and so on) are checked too.
-; A matching copy is moved to DestPath under the name from the tic.
-; Default: TicPath.
-;FilesPath d:\fido\inbound
+; Where to look for tics and their files. Besides the file named in the
+; tic, its copies renamed by the mailer (file.zip.1, file.zi0 and so on)
+; are checked too. A matching copy is moved to DestPath under the name
+; from the tic. Required.
+InboundPath d:\fido\inbound
 
 ; Where to move files together with their tics. Required. Must be
-; different from TicPath and FilesPath.
+; different from InboundPath.
 ; Set this directory as the inbound in your file echo processor's config.
 DestPath d:\fido\inbound\fecho
 
@@ -92,7 +89,7 @@ DestPath d:\fido\inbound\fecho
 ;CorruptTicAction Move
 
 ; Where to move corrupt tics. Required with CorruptTicAction Move.
-; Must be different from TicPath and FilesPath.
+; Must be different from InboundPath.
 CorruptTicPath d:\fido\inbound\corrupt
 
 ; Log file (UTF-8). If not set, the log goes to stderr.

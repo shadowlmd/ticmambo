@@ -46,7 +46,7 @@ sub run_ticmambo {
     my (%opt) = @_;
     my $preload = delete $opt{_preload};
     my %cfg = (
-        TicPath         => $in,
+        InboundPath     => $in,
         DestPath        => $dest,
         CorruptTicPath  => $corrupt,
         LogFile         => $log,
@@ -258,6 +258,41 @@ subtest 'copies renamed by the mailer' => sub {
     run_ticmambo();
     is(slurp(catfile($dest, 'file.zip')), $c, 'only copies, the matching one moved');
     ok(has($in, 'file.zip.1') && has($in, 'file.zip.3'), 'other copies untouched');
+
+    setup();
+    put($in, 'file.zip', 'wrong');
+    put($in, "file.zip.$_", "wrong $_") for 1 .. 5;
+    put($in, 'f.tic', std_tic('file.zip', $c));
+    run_ticmambo(WaitForFileDays => 3);
+    ok(has($in, 'f.tic'), 'no matching file: tic waits');
+    like(log_text(), qr/f\.tic: File file\.zip: size is 5, tic says 13, waiting/, 'no matching file: reason logged');
+    unlike(log_text(), qr/file\.zip\.\d/, 'no matching file: copies not mentioned');
+
+    setup();
+    put($in, "file.zip.$_", "wrong $_") for 1 .. 5;
+    put($in, 'f.tic', std_tic('file.zip', $c));
+    run_ticmambo(WaitForFileDays => 3);
+    like(log_text(), qr/f\.tic: File file\.zip: not found, waiting/, 'only non-matching copies: not found');
+    unlike(log_text(), qr/file\.zip\.\d/, 'only non-matching copies: copies not mentioned');
+
+    setup();
+    put($in, 'long name.zip', 'wrong');
+    put($in, 'f.tic', tic_text('File LONGNA~1.ZIP', 'Lfile long name.zip', 'Crc ' . crc($c)));
+    run_ticmambo(WaitForFileDays => 3);
+    like(log_text(), qr/f\.tic: Lfile long name\.zip: CRC is [0-9A-F]{8}, tic says [0-9A-F]{8}; File LONGNA~1\.ZIP: not found, waiting/,
+        'both names reported');
+
+    # File that differs from Fullname only in case is not looked for, nor
+    # are its copies; with IgnoreCase Yes they are copies of Fullname anyway.
+    setup();
+    put($in, 'FILE.ZIP', 'wrong');
+    put($in, 'FILE.ZIP.1', $c);
+    put($in, 'f.tic', tic_text('File FILE.ZIP', 'Fullname file.zip', 'Crc ' . crc($c)));
+    run_ticmambo(IgnoreCase => 'No', WaitForFileDays => 3);
+    ok(has($in, 'FILE.ZIP') && has($in, 'FILE.ZIP.1'), 'File same as Fullname but for case: not looked for');
+    like(log_text(), qr/f\.tic: Fullname file\.zip: not found, waiting/, 'File same as Fullname but for case: not reported');
+    run_ticmambo(IgnoreCase => 'Yes');
+    is(slurp(catfile($dest, 'file.zip')), $c, 'IgnoreCase Yes: copy of Fullname moved');
 
     setup();
     put($in, 'README.1', $c);
@@ -635,24 +670,30 @@ subtest 'existing files in DestPath' => sub {
     ok(has($in, 'evil.tic'), 'corrupt tic kept when CorruptTicPath already has one');
 };
 
-SKIP: {
-    skip 'needs Unix permissions', 1 if $IS_WIN || $> == 0;
-    subtest 'pair is moved all or none' => sub {
-        # The tic cannot be moved out of a read-only TicPath; the file that
-        # was already moved must come back.
-        setup();
-        my $files = catfile($root, 'files');
-        mkdir $files;
-        put($files, 'f.zip', 'x');
-        put($in, 'f.tic', std_tic('f.zip', 'x'));
-        chmod 0555, $in or die $!;
-        run_ticmambo(FilesPath => $files);
-        chmod 0755, $in;
-        ok(has($files, 'f.zip') && has($in, 'f.tic'), 'file moved back, tic in place');
-        ok(!has($dest, 'f.zip') && !has($dest, 'f.tic'), 'nothing in DestPath');
-        like(log_text(), qr/cannot move/, 'error logged');
-    };
-}
+subtest 'pair is moved all or none' => sub {
+    # The tic cannot be moved; the file that was already moved must come back.
+    setup();
+    put($in, 'f.zip', 'x');
+    put($in, 'f.tic', std_tic('f.zip', 'x'));
+    my $sub = 'sub { if ($_[0] =~ /\.tic\z/) { $! = 13; return 0 } goto &$orig }';
+    run_ticmambo(_preload => "require File::Copy; no warnings; my \$orig = \\&File::Copy::move; *File::Copy::move = $sub");
+    ok(has($in, 'f.zip') && has($in, 'f.tic'), 'file moved back, tic in place');
+    ok(!has($dest, 'f.zip') && !has($dest, 'f.tic'), 'nothing in DestPath');
+    like(log_text(), qr/cannot move \S*f\.tic to/, 'error logged');
+};
+
+subtest 'InboundPath cannot be read when looking for the file' => sub {
+    setup();
+    put($in, 'f.zip', 'x');
+    put($in, 'f.tic', std_tic('f.zip', 'x'), 10);
+    # The first opendir is the main loop; the next ones fail. The override
+    # is imported into main only: a global one would break Cwd.
+    my $sub = 'sub { if ($n++) { $! = 13; return 0 } CORE::opendir($_[0], $_[1]) }';
+    run_ticmambo(DeleteOrphanTics => 'Yes', WaitForFileDays => 3,
+        _preload => "package Fake; my \$n = 0; *main::opendir = $sub; package main");
+    ok(has($in, 'f.tic') && has($in, 'f.zip'), 'old tic not taken for an orphan');
+    like(log_text(), qr/\[ERROR\] f\.tic: cannot read InboundPath [^\n]*, skipping/, 'error logged');
+};
 
 subtest 'TouchFiles' => sub {
     setup();
@@ -692,10 +733,10 @@ subtest 'AddFullname' => sub {
 
     setup();
     put($in, 'f.zip', $c);
-    put($in, 'f.tic', "File F.ZIP\nCrc " . crc($c) . "\nLfile f.zip");
+    put($in, 'f.tic', "File F.ZIP\nCrc " . crc($c) . "\rLfile f.zip");
     run_ticmambo(AddFullname => 'Yes');
-    is(slurp(catfile($dest, 'f.tic')), "File F.ZIP\nCrc " . crc($c) . "\nLfile f.zip\nFullname f.zip",
-        'last line without EOL, LF line endings');
+    is(slurp(catfile($dest, 'f.tic')), tic_text('File F.ZIP', 'Crc ' . crc($c), 'Lfile f.zip', 'Fullname f.zip'),
+        'LF and CR line endings, last line without EOL: written with CR LF');
 
     for my $t ([has_fullname => tic_text('File f.zip', 'Lfile f.zip', 'Fullname f.zip', 'Crc ' . crc($c))],
                [no_lfile => tic_text('File f.zip', 'Fullname f.zip', 'Crc ' . crc($c))],
@@ -723,9 +764,16 @@ subtest 'AddFullname' => sub {
     put($in, 'f.zip', $c);
     put($in, 'f.tic', $bom);
     run_ticmambo(AddFullname => 'Yes', TicCharset => 'UTF-8');
-    is(slurp(catfile($dest, 'f.tic')), $bom, 'BOM before Lfile: tic unchanged');
-    like(log_text(), qr/cannot find the line to edit \(adding Fullname\)/, 'BOM before Lfile: logged');
-    unlike(log_text(), qr/added Fullname/, 'BOM before Lfile: no false success');
+    is(slurp(catfile($dest, 'f.tic')), tic_text('Lfile f.zip', 'Fullname f.zip', 'Crc ' . crc($c)),
+        'BOM before Lfile: Fullname added, BOM dropped');
+
+    setup();
+    my $bad = tic_text('Lfile f.zip', "Desc \xFF", 'Crc ' . crc($c));
+    put($in, 'f.zip', $c);
+    put($in, 'f.tic', $bad);
+    run_ticmambo(AddFullname => 'Yes', TicCharset => 'UTF-8');
+    is(slurp(catfile($dest, 'f.tic')), $bad, 'not valid in TicCharset: tic unchanged');
+    like(log_text(), qr/f\.tic: not valid in TicCharset, cannot edit/, 'not valid in TicCharset: logged');
 
     setup();
     put($in, 'f.tic', tic_text('File f.zip', 'Lfile f.zip', 'Crc ' . crc($c)), 10);
@@ -805,18 +853,6 @@ SKIP: {
         }
     };
 }
-
-subtest 'separate FilesPath' => sub {
-    setup();
-    my $files = catfile($root, 'files');
-    mkdir $files;
-    put($files, 'f.zip', 'x');
-    put($in, 'f.zip', 'wrong');
-    put($in, 'f.tic', std_tic('f.zip', 'x'));
-    run_ticmambo(FilesPath => $files);
-    ok(has($dest, 'f.zip') && !has($files, 'f.zip'), 'file taken from FilesPath');
-    is(slurp(catfile($dest, 'f.zip')), 'x', 'right file');
-};
 
 subtest 'tic referring to another tic' => sub {
     setup();
@@ -913,7 +949,7 @@ subtest 'config line endings' => sub {
         put($in, 'f.zip', 'x');
         put($in, 'f.tic', std_tic('f.zip', 'x'));
         my $name = join '', map { sprintf '%02X', ord } split //, $eol;
-        my $text = "\xEF\xBB\xBF; comment$eol${eol}TicPath $in${eol}DestPath $dest$eol"
+        my $text = "\xEF\xBB\xBF; comment$eol${eol}InboundPath $in${eol}DestPath $dest$eol"
             . "CorruptTicAction Keep${eol}LogFile $log$eol";
         my $cfg = put($root, 'eol.cfg', $text);
         is(system($^X, $SCRIPT, $cfg) >> 8, 0, "$name: config accepted");
@@ -933,15 +969,15 @@ subtest 'non-ASCII paths in a UTF-8 config' => sub {
     put($in2, 'f.zip', 'x');
     put($in2, 'f.tic', std_tic('f.zip', 'x'));
     my ($r, $d, $l) = map { decode(locale_fs => $_) } $root, $dest, $log;
-    my $cfg = put($root, 'utf8.cfg', encode('UTF-8', "TicPath $r/входящие\r\nDestPath $d\r\n"
+    my $cfg = put($root, 'utf8.cfg', encode('UTF-8', "InboundPath $r/входящие\r\nDestPath $d\r\n"
         . "CorruptTicAction Keep\r\nLogFile $l\r\n"));
     is(system($^X, $SCRIPT, $cfg) >> 8, 0, 'config accepted');
-    ok(has($dest, 'f.zip') && has($dest, 'f.tic'), 'TicPath found');
+    ok(has($dest, 'f.zip') && has($dest, 'f.tic'), 'InboundPath found');
 };
 
 subtest 'config errors' => sub {
     setup();
-    isnt(run_ticmambo(TicPath => undef), 0, 'missing TicPath');
+    isnt(run_ticmambo(InboundPath => undef), 0, 'missing InboundPath');
     isnt(run_ticmambo(DestPath => undef), 0, 'missing DestPath');
     isnt(run_ticmambo(DestPath => catfile($root, 'nope')), 0, 'nonexistent DestPath');
     isnt(run_ticmambo(CorruptTicPath => undef), 0, 'Move without CorruptTicPath');
@@ -952,10 +988,9 @@ subtest 'config errors' => sub {
     isnt(run_ticmambo(TicCharset => 'no-such-charset'), 0, 'bad charset');
     isnt(run_ticmambo(LogLevel => 'chatty'), 0, 'bad log level');
     isnt(run_ticmambo(NoSuchKeyword => 1), 0, 'unknown keyword');
-    isnt(run_ticmambo(DestPath => $in), 0, 'DestPath is TicPath');
-    isnt(run_ticmambo(DestPath => "$in/../in"), 0, 'DestPath is TicPath, other spelling');
-    isnt(run_ticmambo(FilesPath => $dest), 0, 'DestPath is FilesPath');
-    isnt(run_ticmambo(CorruptTicPath => $in), 0, 'CorruptTicPath is TicPath');
+    isnt(run_ticmambo(DestPath => $in), 0, 'DestPath is InboundPath');
+    isnt(run_ticmambo(DestPath => "$in/../in"), 0, 'DestPath is InboundPath, other spelling');
+    isnt(run_ticmambo(CorruptTicPath => $in), 0, 'CorruptTicPath is InboundPath');
     isnt(system($^X, $SCRIPT, catfile($root, 'missing.cfg')) >> 8, 0, 'missing config file');
     is(run_ticmambo(LogLevel => undef, touchfiles => "yes", LOGLEVEL => "INFO"), 0, 'keywords and values are case insensitive');
 };

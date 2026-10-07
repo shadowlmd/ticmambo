@@ -24,8 +24,7 @@ the file echo processor only gets pairs that are already known to be good.
 
 ## How it works
 
-TicMambo reads the tic directory once per run and handles every `*.tic`
-file found there:
+TicMambo handles every `*.tic` file in `InboundPath`:
 
 1. **Hidden tic** (Windows). A tic with the hidden attribute may still be
    being received, so it is skipped for `WaitForHiddenTicDays` days.
@@ -35,19 +34,16 @@ file found there:
    or a device name such as `CON` or `NUL`. Such a tic is moved to
    `CorruptTicPath`, deleted, or left in place, depending on
    `CorruptTicAction`.
-3. **Looking for the file.** The name is taken from `Lfile` (or `Fullname`),
-   then from `File`, and converted from `TicCharset` to the file system
-   encoding. Copies that the mailer renamed because a file with the same
-   name already existed are checked too: `file.zip.1` (binkd "postfix"
-   style) and `file.zi0` (binkd "extension" style). The file itself is
-   checked before its copies. Case matters unless `IgnoreCase` is `Yes`
-   (the default on Windows), whatever the file system.
+3. **Looking for the file.** The file is looked for by `Lfile` (or
+   `Fullname`), then by `File`. Copies that the mailer renamed because a
+   file with the same name already existed are found too: `file.zip.1`
+   (binkd "postfix" style) and `file.zi0` (binkd "extension" style).
 4. **Match.** A file matches if its CRC-32 equals `Crc` and, when the tic has
    a `Size`, its size equals `Size`. The first matching file is moved to
    `DestPath` together with the tic, and a renamed copy gets the name from
    the tic. If a file or tic with the same name is already in `DestPath`,
-   the pair is left for the next run (see `OverwriteExisting`). If the tic
-   cannot be moved, the file is moved back, so a pair is never split.
+   the pair is left for the next run (see `OverwriteExisting`). A pair is
+   never split.
 5. **No match.** A tic without a matching file waits `WaitForFileDays` days,
    then it is moved to `DestPath` alone or deleted (see `DeleteOrphanTics`).
    Files that don't match are never touched.
@@ -55,17 +51,8 @@ file found there:
 Nothing in `DestPath` is left hidden: the hidden attribute is cleared on
 every file and tic moved there.
 
-Tics are not modified unless `FixShortName` or `AddFullname` is set. With
-them, a tic that has been moved to `DestPath` together with its file is
-edited afterwards: `File` is replaced with the short name that Windows gave
-the file, and `Fullname` is added next to `Lfile`, for file echo processors
-that don't understand `Lfile`. Only those lines change; the rest of the tic
-stays byte for byte. The new tic is written to a temporary file that then
-replaces the original, so a failed write never leaves a truncated tic. If
-the tic cannot be edited, it is left as it was and a warning is logged.
-
-The age of a tic is based on its creation time where it is available
-(Windows; Linux via `statx(2)`), and on its modification time otherwise.
+Tics are not modified unless `FixShortName` or `AddFullname` is set: they
+adapt tics to file echo processors that don't understand `Lfile`.
 
 ## Requirements
 
@@ -96,24 +83,20 @@ several sessions at once: TicMambo has no locking, and two copies running
 at the same time get in each other's way.
 
 The exit code is 0 after a normal run, and 1 if the config is invalid or
-the log file or the tic directory cannot be opened. Problems with
+the log file or the inbound directory cannot be opened. Problems with
 individual tics and files are logged and do not stop the run.
 
 ## Configuration
 
 All keywords are described in [ticmambo.cfg.sample](ticmambo.cfg.sample).
-Only `TicPath`, `DestPath` and, with the default `CorruptTicAction Move`,
+Only `InboundPath`, `DestPath` and, with the default `CorruptTicAction Move`,
 `CorruptTicPath` are required. `DestPath` and `CorruptTicPath` must be
-different from `TicPath` and `FilesPath`.
-
-The config is read as UTF-8 or, if it is not valid UTF-8, in the system
-encoding (the ANSI code page on Windows).
+different from `InboundPath`.
 
 ## Logging
 
 Messages go to `LogFile` (UTF-8) or, if it is not set, to stderr. `LogLevel`
 selects how much is logged: `error`, `warn`, `info` (default) or `debug`.
-Control characters in names are logged as `\xNN`.
 
 ## Tests
 
@@ -121,11 +104,7 @@ Control characters in names are logged as `\xNN`.
 prove t
 ```
 
-The tests run TicMambo on temporary directories. They cover matching and
-non-matching files, renamed copies, malformed and malicious tics, character
-sets, case insensitivity, tic editing, and config errors. Tests that need Windows
-(hidden attributes, open files) or Unix (symlinks, FIFOs, permissions, a
-sparse 2 GB tic) are skipped on other systems.
+Tests that need Windows or Unix are skipped on other systems.
 
 ## License
 
