@@ -188,8 +188,13 @@ subtest 'Crc/Size variations that match' => sub {
     put($in, 'zeros.tic', tic_text('File zeros.zip', 'Size 000' . length($c), 'Crc ' . crc($c)));
     put($in, 'empty.zip', '');
     put($in, 'empty.tic', tic_text('File empty.zip', 'Size 0', 'Crc 00000000'));
+    # 'x31' has CRC 001685F0.
+    put($in, 'short.zip', 'x31');
+    put($in, 'short.tic', tic_text('File short.zip', 'Crc 1685f0'));
+    put($in, 'zero.zip', '');
+    put($in, 'zero.tic', tic_text('File zero.zip', 'Crc 0'));
     run_ticmambo();
-    ok(has($dest, "$_.zip") && has($dest, "$_.tic"), "$_ moved") for qw(lc nosize zeros empty);
+    ok(has($dest, "$_.zip") && has($dest, "$_.tic"), "$_ moved") for qw(lc nosize zeros empty short zero);
 };
 
 subtest 'CRC-32 check value' => sub {
@@ -213,11 +218,7 @@ subtest 'large file CRC is computed over all chunks' => sub {
 for my $case (
     ['size mismatch',  sub { std_tic('f.zip', 'other length!') }],
     ['crc mismatch',   sub { tic_text('File f.zip', 'Size 4', 'Crc ' . crc('ABCD')) }],
-    ['no Crc',         sub { tic_text('File f.zip', 'Size 4') }],
     ['short Crc',      sub { tic_text('File f.zip', 'Crc ' . substr(crc('abcd'), 1)) }],
-    ['long Crc',       sub { tic_text('File f.zip', 'Crc 0' . crc('abcd')) }],
-    ['non-hex Crc',    sub { tic_text('File f.zip', 'Crc XYZXYZXY') }],
-    ['Crc with junk',  sub { tic_text('File f.zip', 'Crc ' . crc('abcd') . ' junk') }],
     ['huge Size',      sub { tic_text('File f.zip', 'Size 99999999999999999999999', 'Crc ' . crc('abcd')) }],
     )
 {
@@ -422,6 +423,20 @@ subtest 'tics without file names are corrupt' => sub {
     put($in, 'emptyval.tic', tic_text('File', 'Lfile   ', 'Crc'));
     run_ticmambo(WaitForFileDays => 3);
     ok(has($corrupt, $_), "$_ in CorruptTicPath") for qw(nofile.tic empty.tic blank.tic emptyval.tic);
+};
+
+subtest 'tics without a valid Crc are corrupt' => sub {
+    setup();
+    put($in, 'f.zip', 'abcd');
+    put($in, 'none.tic', tic_text('File f.zip', 'Size 4'));
+    put($in, 'empty.tic', tic_text('File f.zip', 'Crc'));
+    put($in, 'long.tic', tic_text('File f.zip', 'Crc 0' . crc('abcd')));
+    put($in, 'nonhex.tic', tic_text('File f.zip', 'Crc XYZXYZXY'));
+    put($in, 'junk.tic', tic_text('File f.zip', 'Crc ' . crc('abcd') . ' junk'));
+    put($in, 'prefix.tic', tic_text('File f.zip', 'Crc 0x' . crc('abcd')));
+    run_ticmambo(WaitForFileDays => 3);
+    ok(has($corrupt, $_), "$_ in CorruptTicPath") for qw(none.tic empty.tic long.tic nonhex.tic junk.tic prefix.tic);
+    ok(has($in, 'f.zip'), 'file left in place');
 };
 
 SKIP: {

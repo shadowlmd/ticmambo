@@ -297,6 +297,9 @@ sub process_tic {
     return corrupt_tic($tic, 'no File or Lfile') unless length $long || length $short;
     return corrupt_tic($tic, "invalid Size '$kw{size}'")
         if defined $kw{size} && $kw{size} !~ /^[0-9]+\z/;
+    return corrupt_tic($tic, 'no Crc') unless length($kw{crc} // '');
+    # Some file echo processors drop leading zeros from Crc.
+    return corrupt_tic($tic, "invalid Crc '$kw{crc}'") unless $kw{crc} =~ /^[0-9A-Fa-f]{1,8}\z/;
 
     # Lfile (or Fullname), then the copies of it that the mailer renamed,
     # then File and its copies; each is a separate pass over InboundPath.
@@ -554,8 +557,6 @@ sub mismatch {
     my ($kw, $path) = @_;
 
     my $crc = $kw->{crc};
-    return 'no Crc in tic' unless defined $crc && length $crc;
-    return "invalid Crc '$crc'" unless $crc =~ /^[0-9A-Fa-f]{8}\z/;
 
     open my $fh, '<:raw', $path or return ("cannot open: $!", 1);
     my $size = -s $fh;
@@ -566,8 +567,7 @@ sub mismatch {
     return ("read error: $!", 1) unless defined $n;
     close $fh;
 
-    $sum = sprintf '%08X', $sum;
-    return "CRC is $sum, tic says " . uc $crc if $sum ne uc $crc;
+    return sprintf 'CRC is %08X, tic says %08X', $sum, hex $crc if $sum != hex $crc;
     return undef;
 }
 
