@@ -10,15 +10,18 @@
 ; tic, its copies renamed by the mailer (file.zip.1, file.zi0 and so on)
 ; are checked too. A matching copy is moved to DestPath under the name
 ; from the tic. Required.
+;
 InboundPath d:\fido\inbound
 
 ; Where to move files together with their tics. Required. Must be
 ; different from InboundPath.
 ; Set this directory as the inbound in your file echo processor's config.
+;
 DestPath d:\fido\inbound\fecho
 
 ; Encoding of file names in tics. Names are converted from it to the file
 ; system encoding. Tics not valid in it are left alone. Default: cp866.
+;
 ;TicCharset cp866
 
 ; Case of file names when looking for the file of a tic and its renamed
@@ -27,6 +30,7 @@ DestPath d:\fido\inbound\fecho
 ; This does not depend on the file system: on Windows too, No means
 ; FILE.ZIP in a tic does not match file.zip. Default: Yes on Windows,
 ; No elsewhere.
+;
 ;IgnoreCase Yes
 
 ; Yes - tic age (see WaitForFileDays and WaitForHiddenTicDays) is based
@@ -34,26 +38,31 @@ DestPath d:\fido\inbound\fecho
 ; Creation time is supported on Windows and on Linux (via statx(2), if
 ; syscall.ph is available and the file system stores creation time).
 ; Otherwise modification time is used. Default: Yes.
+;
 ;UseCreationTime Yes
 
 ; How many days to wait for a file that matches the tic by Crc and Size,
 ; counted from the tic's creation or modification time (see
 ; UseCreationTime). After that see DeleteOrphanTics. Default: 3.
+;
 ;WaitForFileDays 3
 
 ; Yes - delete tics for which no matching file arrived in time, No - move
 ; them to DestPath without a file. Non-matching files are never touched.
 ; Default: No.
+;
 ;DeleteOrphanTics No
 
 ; Windows: how many days to skip a tic with the 'hidden' attribute (it may
 ; still be being received). After that it is processed as usual.
 ; 0 - do not wait. Files and tics moved to DestPath always have the
 ; attribute cleared. Default: 7.
+;
 ;WaitForHiddenTicDays 7
 
 ; Yes - set the current time on good files when moving them.
 ; Default: No.
+;
 ;TouchFiles No
 
 ; Windows: for file echo processors that only understand File and open
@@ -63,11 +72,13 @@ DestPath d:\fido\inbound\fecho
 ; the tic is replaced with it. If the file has no short name (8.3 names
 ; are disabled on the volume), the tic is left as it is and a warning is
 ; logged. Ignored on other systems. Default: No.
+;
 ;FixShortName No
 
 ; Yes - add Fullname with the value of Lfile to tics that have Lfile but
 ; no Fullname, for file echo processors that understand Fullname but not
 ; Lfile. Default: No.
+;
 ;AddFullname No
 
 ; Yes - overwrite files in DestPath and CorruptTicPath. This is not safe:
@@ -75,10 +86,12 @@ DestPath d:\fido\inbound\fecho
 ; tic with another file. No - if a file or tic with the same name is
 ; already there, skip the tic until the next run; if this happens in
 ; DestPath, the exit code is 2. Default: No.
+;
 ;OverwriteExisting No
 
 ; Tics larger than this size (in bytes) are considered corrupt.
 ; Default: 65536.
+;
 ;MaxTicSize 65536
 
 ; What to do with corrupt tics (too large, NUL characters, no File/Lfile,
@@ -89,14 +102,18 @@ DestPath d:\fido\inbound\fecho
 ;   Delete - delete;
 ;   Keep   - leave in place (log only).
 ; Default: Move.
+;
 ;CorruptTicAction Move
 
 ; Where to move corrupt tics. Required with CorruptTicAction Move.
 ; Must be different from InboundPath.
+;
 CorruptTicPath d:\fido\inbound\corrupt
 
 ; Log file (UTF-8). If not set, the log goes to stderr.
+;
 LogFile d:\fido\log\ticmambo.log
 
 ; Log level: error, warn, info, debug. Default: info.
+;
 ;LogLevel info
