@@ -30,12 +30,12 @@ TicMambo handles every `*.tic` file in `InboundPath`:
 1. **Hidden tic** (Windows). A tic with the hidden attribute may still be
    being received, so it is skipped for `WaitForHiddenTicDays` days.
 2. **Corrupt tic.** The tic is larger than `MaxTicSize`, contains NUL
-   characters, has no `File`/`Lfile` or `Crc`, has a `Size` that is not a
-   decimal number or a `Crc` that is not a hexadecimal number of up to 8
-   digits, or names a file with a path, a drive letter, control characters, `.`,
-   `..`, a device name such as `CON` or `NUL`, or another tic. Such a tic is moved to
-   `CorruptTicPath`, deleted, or left in place, depending on
-   `CorruptTicAction`.
+   characters, has none of `File`, `Lfile` and `Fullname`, has no `Crc`,
+   has a `Size` that is not a decimal number or a `Crc` that is not a
+   hexadecimal number of up to 8 digits, or names a file with a path, a
+   drive letter, control characters, `.`, `..`, a device name such as `CON`
+   or `NUL`, or another tic. Such a tic is moved to `CorruptTicPath`,
+   deleted, or left in place, depending on `CorruptTicAction`.
 3. **Looking for the file.** The file is looked for by `Lfile` (or
    `Fullname`), then by `File`. Copies that the mailer renamed because a
    file with the same name already existed are found too, in all binkd
