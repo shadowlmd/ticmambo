@@ -107,7 +107,7 @@ different from `InboundPath`.
 ## Logging
 
 Messages go to `LogFile` (UTF-8) or, if it is not set, to stderr. `LogLevel`
-selects how much is logged: `error`, `warn`, `info` (default) or `debug`.
+selects how much is logged: `error`, `warning`, `info` (default) or `debug`.
 
 ## Tests
 

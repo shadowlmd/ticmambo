@@ -116,6 +116,6 @@ CorruptTicPath d:\fido\inbound\corrupt
 ;
 LogFile d:\fido\log\ticmambo.log
 
-; How much to log: error, warn, info or debug. Default: info.
+; How much to log: error, warning, info or debug. Default: info.
 ;
 ;LogLevel info

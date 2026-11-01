@@ -35,7 +35,7 @@ my $SYS_statx = $^O eq 'linux' && eval { require 'syscall.ph'; SYS_statx() };
 use constant { AT_FDCWD => -100, STATX_BTIME => 0x800, STX_BTIME_OFFSET => 80 };
 use constant LITTLE_ENDIAN => pack('L', 1) eq pack('V', 1);
 
-my %LEVELS = (error => 0, warn => 1, info => 2, debug => 3);
+my %LEVELS = (error => 0, warning => 1, info => 2, debug => 3);
 
 # Keyword => [type, default]. Types: dir, path, bool, days, int, charset,
 # level, action.
@@ -175,7 +175,7 @@ sub logmsg {
     return if $LEVELS{$level} > $LEVELS{$cfg{LogLevel}};
     # Names from tics and from the disk may contain control characters.
     $msg =~ s/([\x00-\x1f\x7f-\x9f])/sprintf '\\x%02X', ord $1/ge;
-    printf $log_fh "%s [%-5s] %s\n", strftime('%Y-%m-%d %H:%M:%S', localtime), uc $level, $msg;
+    printf $log_fh "%s [%s] %s\n", strftime('%Y-%m-%d %H:%M:%S', localtime), $level, $msg;
 }
 
 # File system name (bytes) to text, for messages.
@@ -234,7 +234,7 @@ sub unhide {
     my $attr;
     Win32::File::GetAttributes($path, $attr)
         && Win32::File::SetAttributes($path, $attr & ~Win32::File::HIDDEN())
-        or logmsg('warn', 'cannot clear hidden attribute of ' . disp($path));
+        or logmsg('warning', 'cannot clear hidden attribute of ' . disp($path));
 }
 
 sub process_tic {
@@ -344,7 +344,7 @@ sub process_tic {
         return unless move_files($cfg{DestPath}, [$file_path, $dest_name], [$tic_path, $tic]);
         if ($cfg{TouchFiles}) {
             utime undef, undef, File::Spec->catfile($cfg{DestPath}, $dest_name)
-                or logmsg('warn', "cannot touch " . disp($dest_name) . ": $!");
+                or logmsg('warning', "cannot touch " . disp($dest_name) . ": $!");
         }
         edit_tic($tic, $text, \%kw, $dest_name);
         return;
@@ -395,16 +395,16 @@ sub edit_tic {
         my $short = Win32::GetShortPathName($path);
         $short = disp((File::Spec->splitpath($short))[2]) if defined $short;
         if (!defined $short) {
-            logmsg('warn', "$tic_disp: cannot get the short name of " . disp($dest_name));
+            logmsg('warning', "$tic_disp: cannot get the short name of " . disp($dest_name));
         }
         elsif ($short !~ /^[^. "*+,\/:;<=>?\[\\\]|]{1,8}(?:\.[^. "*+,\/:;<=>?\[\\\]|]{1,3})?\z/) {
-            logmsg('warn', "$tic_disp: " . disp($dest_name) . ' has no short name, File left as is');
+            logmsg('warning', "$tic_disp: " . disp($dest_name) . ' has no short name, File left as is');
         }
         elsif (fc $short eq fc $kw->{file}) {
             logmsg('debug', "$tic_disp: short name $short matches File");
         }
         elsif (!defined eval { $cfg{TicCharset}->encode($short, Encode::FB_CROAK | Encode::LEAVE_SRC) }) {
-            logmsg('warn', "$tic_disp: short name $short cannot be represented in TicCharset");
+            logmsg('warning', "$tic_disp: short name $short cannot be represented in TicCharset");
         }
         else {
             $set{file} = [$short, "File $kw->{file} -> $short"];
@@ -465,7 +465,7 @@ sub edit_tic {
         logmsg('info', "$tic_disp: " . join(', ', @what));
     }
     else {
-        logmsg('warn', "$tic_disp: cannot edit (" . join(', ', @what) . "): $err");
+        logmsg('warning', "$tic_disp: cannot edit (" . join(', ', @what) . "): $err");
         close $fh if defined $fh && defined fileno $fh;
         unlink $tmp if defined $tmp;
     }
@@ -607,7 +607,7 @@ sub move_files {
     unless ($cfg{OverwriteExisting}) {
         for my $f (@files) {
             if (-e File::Spec->catfile($dir, $f->[1])) {
-                logmsg('warn', disp($f->[1]) . ' already exists in ' . disp($dir) . ', skipping');
+                logmsg('warning', disp($f->[1]) . ' already exists in ' . disp($dir) . ', skipping');
                 $rerun = 1 if $dir eq $cfg{DestPath};
                 return 0;
             }
@@ -652,7 +652,7 @@ sub corrupt_tic {
     my $tic_path = File::Spec->catfile($cfg{InboundPath}, $tic);
     my $action = $cfg{CorruptTicAction};
 
-    logmsg('warn', disp($tic) . ": corrupt tic ($why), action: $action");
+    logmsg('warning', disp($tic) . ": corrupt tic ($why), action: $action");
     if ($action eq 'delete') {
         delete_file($tic_path);
     }

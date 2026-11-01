@@ -641,7 +641,7 @@ SKIP: {
         put($in, 'f.tic', $tic, 10);
         is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes'), 0, 'exit code');
         ok(has($in, 'f.tic'), 'old tic not taken for an orphan');
-        like(log_text(), qr/\[ERROR\] f\.tic: Lfile .*: cannot be represented in the file system encoding; File TEST\.ZIP: not found, skipping/,
+        like(log_text(), qr/\[error\] f\.tic: Lfile .*: cannot be represented in the file system encoding; File TEST\.ZIP: not found, skipping/,
             'error logged');
 
         setup();
@@ -675,7 +675,7 @@ subtest 'tic not valid in TicCharset is left alone' => sub {
         put($in, 'f.tic', $tic, 10);
         is(run_ticmambo(TicCharset => 'UTF-8', WaitForFileDays => 3, DeleteOrphanTics => 'Yes'), 0, "$what: exit code");
         ok(has($in, 'f.tic') && !has($dest, 'f.tic'), "$what: tic left in place");
-        like(log_text(), qr/\[ERROR\] f\.tic: not valid in TicCharset, skipping/, "$what: error logged");
+        like(log_text(), qr/\[error\] f\.tic: not valid in TicCharset, skipping/, "$what: error logged");
     }
 };
 
@@ -687,13 +687,13 @@ SKIP: {
         put($in, 'f.tic', tic_text('Lfile file.zip.', 'Crc ' . crc('x')), 10);
         is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes'), 0, 'dot at the end: exit code');
         ok(has($in, 'f.tic') && has($in, 'file.zip'), 'dot at the end: old tic not taken for an orphan');
-        like(log_text(), qr/\[ERROR\] f\.tic: Lfile file\.zip\.: ends with a dot or space/, 'dot at the end: error logged');
+        like(log_text(), qr/\[error\] f\.tic: Lfile file\.zip\.: ends with a dot or space/, 'dot at the end: error logged');
 
         setup();
         put($in, 'f.tic', tic_text('Lfile what?.zip', 'Crc ' . crc('x')), 10);
         is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes'), 0, 'question mark: exit code');
         ok(has($in, 'f.tic'), 'question mark: old tic not taken for an orphan');
-        like(log_text(), qr/\[ERROR\] f\.tic: Lfile what\?\.zip: contains one of/, 'question mark: error logged');
+        like(log_text(), qr/\[error\] f\.tic: Lfile what\?\.zip: contains one of/, 'question mark: error logged');
     };
 }
 
@@ -832,7 +832,7 @@ SKIP: {
         ok(-p catfile($in, 'fifo.tic'), 'fifo tic ignored');
         ok(-p catfile($in, 'fifo.zip') && !has($dest, 'fifo.zip') && has($dest, 'fifo-ref.tic'), 'fifo data file not used');
         ok(-d catfile($in, 'dir.tic') && -d catfile($in, 'dir.zip') && has($dest, 'dir-ref.tic'), 'directories ignored');
-        like(log_text(), qr/\[DEBUG\] dir\.zip is not a regular file, skipping/, 'directory data file logged');
+        like(log_text(), qr/\[debug\] dir\.zip is not a regular file, skipping/, 'directory data file logged');
     };
 }
 
@@ -874,7 +874,7 @@ subtest 'existing files in DestPath' => sub {
     put($dest, 'f.zip', 'old');
     mkdir catfile($dest, 'f.tic') or die $!;
     is(run_ticmambo(), 0, 'directory and file in dest: exit code');
-    like(log_text(), qr/\[ERROR\] f\.tic is a directory in /, 'directory and file in dest: directory reported');
+    like(log_text(), qr/\[error\] f\.tic is a directory in /, 'directory and file in dest: directory reported');
 
     # move() would put the file into the directory.
     for my $overwrite (qw(Yes No)) {
@@ -885,7 +885,7 @@ subtest 'existing files in DestPath' => sub {
         is(run_ticmambo(OverwriteExisting => $overwrite), 0, "directory in dest, OverwriteExisting $overwrite: exit code");
         ok(has($in, 'f.zip') && has($in, 'f.tic') && !has($dest, 'f.tic'),
             "directory in dest, OverwriteExisting $overwrite: pair skipped");
-        like(log_text(), qr/\[ERROR\] f\.zip is a directory in /, "directory in dest, OverwriteExisting $overwrite: logged");
+        like(log_text(), qr/\[error\] f\.zip is a directory in /, "directory in dest, OverwriteExisting $overwrite: logged");
     }
 
     setup();
@@ -922,7 +922,7 @@ subtest 'InboundPath cannot be read' => sub {
     is(run_ticmambo(_preload => 'package Fake; *main::opendir = sub { $! = 13; 0 }; package main'),
         2, 'exit code');
     ok(has($in, 'f.tic') && has($in, 'f.zip'), 'nothing moved');
-    like(log_text(), qr/\[ERROR\] cannot read InboundPath/, 'error logged');
+    like(log_text(), qr/\[error\] cannot read InboundPath/, 'error logged');
 };
 
 subtest 'InboundPath cannot be read when looking for the file' => sub {
@@ -935,7 +935,7 @@ subtest 'InboundPath cannot be read when looking for the file' => sub {
     is(run_ticmambo(DeleteOrphanTics => 'Yes', WaitForFileDays => 3,
         _preload => "package Fake; my \$n = 0; *main::opendir = $sub; package main"), 2, 'exit code');
     ok(has($in, 'f.tic') && has($in, 'f.zip'), 'old tic not taken for an orphan');
-    like(log_text(), qr/\[ERROR\] f\.tic: cannot read InboundPath [^\n]*, skipping/, 'error logged');
+    like(log_text(), qr/\[error\] f\.tic: cannot read InboundPath [^\n]*, skipping/, 'error logged');
 };
 
 SKIP: {
@@ -955,7 +955,7 @@ SKIP: {
             is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => $delete), 2,
                 "unreadable file, DeleteOrphanTics $delete: exit code");
             ok(has($in, 'f.tic') && has($in, 'f.zip'), "unreadable file, DeleteOrphanTics $delete: left in place");
-            like(log_text(), qr/\[ERROR\] cannot check f\.zip/, "unreadable file, DeleteOrphanTics $delete: error logged");
+            like(log_text(), qr/\[error\] cannot check f\.zip/, "unreadable file, DeleteOrphanTics $delete: error logged");
         }
 
         # readdir works, lstat fails.
@@ -967,14 +967,14 @@ SKIP: {
         chmod 0755, $in;
         is($rc, 2, 'InboundPath not searchable: exit code');
         ok(has($in, 'f.tic') && has($in, 'f.zip'), 'InboundPath not searchable: left in place');
-        like(log_text(), qr/\[ERROR\] cannot stat f\.tic/, 'InboundPath not searchable: error logged');
+        like(log_text(), qr/\[error\] cannot stat f\.tic/, 'InboundPath not searchable: error logged');
 
         setup();
         chmod 0, put($in, 'f.zip.1', 'x');
         put($in, 'f.tic', std_tic('f.zip', 'x'), 10);
         is(run_ticmambo(WaitForFileDays => 3), 2, 'unreadable renamed copy: exit code');
         ok(has($in, 'f.tic') && !has($dest, 'f.tic'), 'unreadable renamed copy: tic left in place');
-        like(log_text(), qr/\[ERROR\] cannot check f\.zip\.1/, 'unreadable renamed copy: error logged');
+        like(log_text(), qr/\[error\] cannot check f\.zip\.1/, 'unreadable renamed copy: error logged');
 
         # Running again may help with the unreadable file, so 2 wins.
         {
@@ -1004,7 +1004,7 @@ subtest 'tic or file gone before it is stat()ed' => sub {
     put($in, 'f.tic', std_tic('f.zip', 'x'));
     is(run_ticmambo(_preload => sprintf("package Fake; *main::lstat = $sub; package main", 'f\\.tic')),
         0, 'tic: exit code');
-    like(log_text(), qr/\[DEBUG\] f\.tic is not a regular file, skipping/, 'tic: skipped');
+    like(log_text(), qr/\[debug\] f\.tic is not a regular file, skipping/, 'tic: skipped');
 
     setup();
     put($in, 'f.zip', 'x');
@@ -1025,7 +1025,7 @@ subtest 'file cannot be stat()ed' => sub {
         is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => $delete,
             _preload => "package Fake; *main::lstat = $sub; package main"), 2, "DeleteOrphanTics $delete: exit code");
         ok(has($in, 'f.tic') && has($in, 'f.zip'), "DeleteOrphanTics $delete: old tic not taken for an orphan");
-        like(log_text(), qr/\[ERROR\] cannot check f\.zip: cannot stat/, "DeleteOrphanTics $delete: error logged");
+        like(log_text(), qr/\[error\] cannot check f\.zip: cannot stat/, "DeleteOrphanTics $delete: error logged");
     }
 };
 
@@ -1040,7 +1040,7 @@ subtest 'read errors' => sub {
     put($in, 'f.tic', std_tic('f.zip', 'x'));
     is(run_ticmambo(_preload => "package Fake; *main::read = $tic_err; package main"), 2, 'tic: exit code');
     ok(has($in, 'f.tic') && has($in, 'f.zip'), 'tic: left in place');
-    like(log_text(), qr/\[ERROR\] cannot read f\.tic/, 'tic: error logged');
+    like(log_text(), qr/\[error\] cannot read f\.tic/, 'tic: error logged');
 
     setup();
     put($in, 'f.zip', 'x');
@@ -1048,7 +1048,7 @@ subtest 'read errors' => sub {
     is(run_ticmambo(WaitForFileDays => 3, DeleteOrphanTics => 'Yes',
         _preload => "package Fake; *main::read = $file_err; package main"), 2, 'file: exit code');
     ok(has($in, 'f.tic') && has($in, 'f.zip'), 'file: old tic not taken for an orphan');
-    like(log_text(), qr/\[ERROR\] cannot check f\.zip: read error/, 'file: error logged');
+    like(log_text(), qr/\[error\] cannot check f\.zip: read error/, 'file: error logged');
 };
 
 subtest 'TouchFiles' => sub {
@@ -1070,7 +1070,7 @@ subtest 'TouchFiles' => sub {
     is(run_ticmambo(TouchFiles => 'Yes', _preload => 'package Fake; *main::utime = sub { $! = 1; 0 }; package main'),
         0, 'cannot touch: exit code');
     ok(has($dest, 'f.zip') && has($dest, 'f.tic'), 'cannot touch: pair moved anyway');
-    like(log_text(), qr/\[WARN \] cannot touch f\.zip/, 'cannot touch: logged');
+    like(log_text(), qr/\[warning\] cannot touch f\.zip/, 'cannot touch: logged');
 };
 
 subtest 'AddFullname' => sub {
