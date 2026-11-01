@@ -247,8 +247,9 @@ for my $case (
 subtest 'copies renamed by the mailer' => sub {
     my $c = 'right content';
     for my $t (map({ ['file.zip', $_] } 'file.zip.1', 'file.zip.12', 'file.zip.anything', 'file.zi0',
-                       'file.zia', 'file.z0a', 'file.00z'),
-               map({ ['readme', $_] } 'readme.1', 'readm0', 'read0a')) {
+                       'file.zia', 'file.z0a', 'file.00z', 'fil0.zip', 'fi0a.zip'),
+               map({ ['readme', $_] } 'readme.1', 'readm0', 'read0a'),
+               map({ ['film.mov', $_] } 'fil0.mov', 'fi0f.mov', 'film.mo0', 'film.mov.1')) {
         my ($name, $copy) = @$t;
         setup();
         put($in, $name, 'stale leftover');
@@ -347,6 +348,7 @@ subtest 'copies renamed by the mailer' => sub {
     setup();
     # Windows drops the trailing dot of 'file.zip.' and would create file.zip.
     put($in, $_, $c) for 'file.zip1', 'xfile.zip.1', 'file.zi', 'file.zipx', 'file.zi_', 'file.zi0.1',
+        'fil_.zip', 'fil0.zi0', 'fil0.zip.1', 'file0.zip', 'fil.zip',
         $IS_WIN ? () : 'file.zip.';
     put($in, 'f.tic', std_tic('file.zip', $c));
     run_ticmambo(WaitForFileDays => 3);
@@ -760,7 +762,7 @@ subtest 'NUL bytes and oversized tics are corrupt' => sub {
     # Not nul.tic: NUL is a device on Windows, whatever the extension.
     put($in, 'zero.tic', "File f.zip\r\nCrc " . crc('x') . "\r\n\0");
     put($in, 'big.tic', std_tic('f.zip', 'x') . ('Ldesc ' . ('x' x 70) . "\r\n") x 1000);
-    put($in, 'limit.tic', std_tic('g.zip', 'x'));
+    put($in, 'limit.tic', std_tic('g.zip', 'y'));
     run_ticmambo(MaxTicSize => 2000);
     ok(has($corrupt, 'zero.tic'), 'tic with NUL in CorruptTicPath');
     ok(has($corrupt, 'big.tic'), 'oversized tic in CorruptTicPath');

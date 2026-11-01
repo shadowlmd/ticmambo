@@ -538,18 +538,29 @@ sub find_file {
 # Mailers rename a received file when one with the same name already exists:
 # file.zip -> file.zip.1 (binkd "postfix" style) or file.zi0, file.z0a
 # (binkd "extension" style; a name without a dot is changed the same way
-# from its end: readme -> readm0).
+# from its end: readme -> readm0). binkd always renames *.pkt, *.req,
+# *.?ic and arcmail (*.mo? and so on) in the part before the extension:
+# film.mov -> fil0.mov; any name is accepted renamed like this.
 sub is_renamed_copy {
     my ($cand, $name) = @_;
 
     return 1 if length $cand > length($name) + 1 && substr($cand, 0, length($name) + 1) eq "$name.";
 
-    my $dot = rindex $name, '.';
     return 0 if length $cand != length $name;
-    my $i = $dot + 1;
-    return 0 unless substr($cand, 0, $i) eq substr($name, 0, $i);
-    $i++ while $i < length $name && substr($cand, $i, 1) eq substr($name, $i, 1);
-    return $i < length $name && substr($cand, $i) =~ /^[0-9A-Za-z]+\z/;
+    my $dot = rindex $name, '.';
+    return changed_end($cand, $name, $dot + 1, length $name)
+        || ($dot > 0 && changed_end($cand, $name, 0, $dot));
+}
+
+# Returns true if $cand differs from $name (of the same length) only in
+# letters and digits at the end of the part from $start to $end.
+sub changed_end {
+    my ($cand, $name, $start, $end) = @_;
+    return 0 unless substr($cand, 0, $start) eq substr($name, 0, $start)
+        && substr($cand, $end) eq substr($name, $end);
+    my $i = $start;
+    $i++ while $i < $end && substr($cand, $i, 1) eq substr($name, $i, 1);
+    return $i < $end && substr($cand, $i, $end - $i) =~ /^[0-9A-Za-z]+\z/;
 }
 
 # Returns the reason why the file does not match the tic and, if the file
