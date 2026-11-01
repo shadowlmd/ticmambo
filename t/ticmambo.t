@@ -1384,6 +1384,20 @@ subtest 'config errors' => sub {
     is(run_ticmambo(CorruptTicPath => $in), 1, 'CorruptTicPath is InboundPath');
     mkdir catfile($root, 'IN');
     is(run_ticmambo(DestPath => catfile($root, 'IN')), 1, 'DestPath is InboundPath but for case');
+    if ($IS_WIN) {
+        my $long = catfile($root, 'Long Directory Name');
+        mkdir $long or die "mkdir $long: $!";
+        my $short = Win32::GetShortPathName($long);
+        SKIP: {
+            skip 'no 8.3 names on this volume', 1 if !defined $short || $short eq $long;
+            is(run_ticmambo(InboundPath => $long, DestPath => $short), 1, 'DestPath is InboundPath by its short name');
+        }
+        my $junction = catfile($root, 'junction');
+        SKIP: {
+            skip 'cannot create a junction', 1 if system(qq{mklink /J "$junction" "$in" >NUL}) != 0;
+            is(run_ticmambo(DestPath => $junction), 1, 'DestPath is a junction to InboundPath');
+        }
+    }
     is(system($^X, $SCRIPT, catfile($root, 'missing.cfg')) >> 8, 1, 'missing config file');
     is(run_ticmambo(LogLevel => undef, touchfiles => "yes", LOGLEVEL => "INFO"), 0, 'keywords and values are case insensitive');
 };
