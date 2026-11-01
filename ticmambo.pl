@@ -537,14 +537,15 @@ sub find_file {
 
 # Mailers rename a received file when one with the same name already exists:
 # file.zip -> file.zip.1 (binkd "postfix" style) or file.zi0, file.z0a
-# (binkd "extension" style).
+# (binkd "extension" style; a name without a dot is changed the same way
+# from its end: readme -> readm0).
 sub is_renamed_copy {
     my ($cand, $name) = @_;
 
     return 1 if length $cand > length($name) + 1 && substr($cand, 0, length($name) + 1) eq "$name.";
 
     my $dot = rindex $name, '.';
-    return 0 if $dot < 0 || length $cand != length $name;
+    return 0 if length $cand != length $name;
     my $i = $dot + 1;
     return 0 unless substr($cand, 0, $i) eq substr($name, 0, $i);
     $i++ while $i < length $name && substr($cand, $i, 1) eq substr($name, $i, 1);

@@ -246,15 +246,18 @@ for my $case (
 
 subtest 'copies renamed by the mailer' => sub {
     my $c = 'right content';
-    for my $copy ('file.zip.1', 'file.zip.12', 'file.zip.anything', 'file.zi0', 'file.zia', 'file.z0a', 'file.00z') {
+    for my $t (map({ ['file.zip', $_] } 'file.zip.1', 'file.zip.12', 'file.zip.anything', 'file.zi0',
+                       'file.zia', 'file.z0a', 'file.00z'),
+               map({ ['readme', $_] } 'readme.1', 'readm0', 'read0a')) {
+        my ($name, $copy) = @$t;
         setup();
-        put($in, 'file.zip', 'stale leftover');
+        put($in, $name, 'stale leftover');
         put($in, $copy, $c);
-        put($in, 'f.tic', std_tic('file.zip', $c));
+        put($in, 'f.tic', std_tic($name, $c));
         run_ticmambo();
-        is(slurp(catfile($dest, 'file.zip')), $c, "$copy moved as file.zip");
+        is(slurp(catfile($dest, $name)), $c, "$copy moved as $name");
         ok(!has($in, $copy), "$copy gone from inbound");
-        is(slurp(catfile($in, 'file.zip')), 'stale leftover', "stale file.zip left alone ($copy)");
+        is(slurp(catfile($in, $name)), 'stale leftover', "stale $name left alone ($copy)");
     }
 
     # The file itself is checked before its copies, whatever the order in
@@ -349,6 +352,12 @@ subtest 'copies renamed by the mailer' => sub {
     run_ticmambo(WaitForFileDays => 3);
     ok(has($in, 'f.tic'), 'similar names that are not copies are ignored');
     ok(!has($dest, 'file.zip'), 'nothing moved');
+
+    setup();
+    put($in, $_, $c) for 'readme1', 'xreadme', 'readm', 'readm_', 'readm0.1';
+    put($in, 'f.tic', std_tic('readme', $c));
+    run_ticmambo(WaitForFileDays => 3);
+    ok(has($in, 'f.tic') && !has($dest, 'readme'), 'name without a dot: similar names that are not copies are ignored');
 
     setup();
     put($in, 'FILE.ZIP.1', $c);
