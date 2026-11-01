@@ -66,12 +66,12 @@ DestPath d:\fido\inbound\fecho
 ;TouchFiles No
 
 ; Windows: for file echo processors that only understand File and open
-; the file by its short (8.3) name. If the tic has Lfile or Fullname that
-; differs from File, the short name that Windows gave the file in DestPath
-; is compared with File (case insensitively), and if they differ, File in
-; the tic is replaced with it. If the file has no short name (8.3 names
-; are disabled on the volume), the tic is left as it is and a warning is
-; logged. Ignored on other systems. Default: No.
+; the file by its short (8.3) name. If the file was found by Lfile or
+; Fullname that differs from File, the short name that Windows gave the
+; file in DestPath is compared with File (case insensitively), and if they
+; differ, File in the tic is replaced with it. If the file has no short
+; name (8.3 names are disabled on the volume), the tic is left as it is
+; and a warning is logged. Ignored on other systems. Default: No.
 ;
 ;FixShortName No
 

@@ -6,8 +6,9 @@
 > — Rue Allyn, *The Creole Duchess*
 
 TicMambo is a pre-processor for Fidonet file echo inbound. It checks each
-incoming TIC file ([FTS-5006](http://ftsc.org/docs/fts-5006.001)) against
-the file it describes. Only pairs that really match go on to the file echo
+incoming TIC file ([FTS-5006](http://ftsc.org/docs/fts-5006.001),
+[FSC-0087](http://ftsc.org/docs/fsc-0087.001)) against the file it
+describes. Only pairs that really match go on to the file echo
 processor.
 
 ## Why

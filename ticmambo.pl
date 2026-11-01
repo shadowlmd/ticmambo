@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #
-# TicMambo - matches incoming TIC files (FTS-5006) with the files they
-# describe and moves the good pairs to a separate directory for the file
-# echo processor.
+# TicMambo - matches incoming TIC files (FTS-5006, FSC-0087) with the
+# files they describe and moves the good pairs to a separate directory
+# for the file echo processor.
 #
 # Usage: ticmambo.pl [config]
 #
@@ -342,7 +342,7 @@ sub process_tic {
             utime undef, undef, File::Spec->catfile($cfg{DestPath}, $dest_name)
                 or logmsg('warn', "cannot touch " . disp($dest_name) . ": $!");
         }
-        edit_tic($tic, $text, \%kw, $long, $dest_name);
+        edit_tic($tic, $text, \%kw, $dest_name);
         return;
     }
     my $why = join '; ',
@@ -375,17 +375,17 @@ sub process_tic {
 
 # Applies FixShortName and AddFullname to a tic already moved to DestPath
 # together with its file $dest_name. $text is the original tic as text
-# without a BOM, $long is its Lfile (or Fullname). On failure the tic is
-# left as it is.
+# without a BOM. On failure the tic is left as it is.
 sub edit_tic {
-    my ($tic, $text, $kw, $long, $dest_name) = @_;
+    my ($tic, $text, $kw, $dest_name) = @_;
     my $tic_disp = disp($tic);
     my (%set, %add);
 
     # File echo processors that only know File open the file by its short
-    # name, which Windows generates on its own.
-    if ($IS_WIN && $cfg{FixShortName} && length $long && length($kw->{file} // '')
-        && fc $long ne fc $kw->{file})
+    # name, which Windows generates on its own. File may be a long name
+    # (FSC-0087): if the file was found by it, File is left alone.
+    if ($IS_WIN && $cfg{FixShortName} && length($kw->{file} // '')
+        && fc disp($dest_name) ne fc $kw->{file})
     {
         my $path = File::Spec->catfile($cfg{DestPath}, $dest_name);
         my $short = Win32::GetShortPathName($path);

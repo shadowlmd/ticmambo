@@ -486,6 +486,25 @@ subtest 'Lfile, Fullname and File' => sub {
     ok(!has($corrupt, '4.tic'), 'not considered corrupt');
 };
 
+# FSC-0087 allows a long name in File.
+subtest 'long name in File' => sub {
+    my $c = 'long';
+    my $name = 'Long File Name v1.2.zip';
+    for my $copy ($name, "$name.1", 'Long File Name v1.2.zi0') {
+        setup();
+        put($in, $copy, $c);
+        put($in, 'f.tic', std_tic($name, $c));
+        run_ticmambo();
+        is(slurp(catfile($dest, fsn($name))), $c, "$copy moved as $name");
+    }
+
+    setup();
+    put($in, $name, $c);
+    put($in, 'f.tic', tic_text("File $name", 'Lfile Not here.zip', 'Crc ' . crc($c)));
+    run_ticmambo();
+    ok(has($dest, $name), 'Lfile not found: falls back to long File');
+};
+
 subtest 'first keyword occurrence wins' => sub {
     setup();
     put($in, 'f.zip', 'abc');
@@ -1127,6 +1146,16 @@ subtest 'FixShortName: cases that leave the tic alone' => sub {
     run_ticmambo(FixShortName => 'Yes');
     is(slurp(catfile($dest, 'f.tic')), tic_text('File F.ZIP', 'Lfile f.zip', 'Crc ' . crc($c)),
         'long name equal to File: tic unchanged');
+
+    # File already names the file, even if it is not an 8.3 name.
+    for my $file ('Long File Name.zip', 'a+b.zip') {
+        setup();
+        put($in, $file, $c);
+        my $t = tic_text("File $file", 'Lfile Not here.zip', 'Crc ' . crc($c));
+        put($in, 'f.tic', $t);
+        run_ticmambo(FixShortName => 'Yes');
+        is(slurp(catfile($dest, 'f.tic')), $t, "file found by File $file: tic unchanged");
+    }
 
     unless ($IS_WIN) {
         setup();
