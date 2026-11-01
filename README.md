@@ -61,8 +61,9 @@ adapt tics to file echo processors that don't understand `Lfile`.
 
 Perl 5.16 or later with the following modules:
 
-- `Encode`, `Compress::Zlib`, `Cwd`, `File::Copy`, `File::Spec`, `POSIX`,
-  `Unicode::Normalize` (part of standard Perl);
+- `Encode`, `Compress::Zlib`, `Cwd`, `File::Copy`, `File::Spec`,
+  `File::Temp`, `FindBin`, `POSIX`, `Unicode::Normalize` (part of standard
+  Perl);
 - `Encode::Locale`;
 - `Win32` and `Win32::File` (Windows only).
 

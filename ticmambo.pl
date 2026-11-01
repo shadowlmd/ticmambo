@@ -18,6 +18,7 @@ use Encode qw(decode encode find_encoding);
 use Encode::Locale;
 use File::Spec;
 use File::Copy qw(move);
+use File::Temp qw(tempfile);
 use FindBin;
 use Compress::Zlib qw(crc32);
 use POSIX qw(strftime);
@@ -440,15 +441,20 @@ sub edit_tic {
     }
 
     my $path = File::Spec->catfile($cfg{DestPath}, $tic);
-    my $tmp = "$path.tmp";
-    my $fh;
-    my $ok = open($fh, '>:raw', $tmp)
+    # Any fixed name for the temporary file may belong to a file in DestPath.
+    my ($fh, $tmp) = eval { tempfile("$tic.XXXXXX", DIR => $cfg{DestPath}) };
+    my $ok = defined $fh
+        && binmode($fh)
         && print({$fh} $cfg{TicCharset}->encode(join '', map { "$_\r\n" } @lines))
         && close($fh);
-    my $err = $!;
+    my $err = defined $fh ? $! : $@ =~ s/\s+\z//r;
     if ($ok) {
+        # tempfile creates the file readable by its owner only.
         my @st = stat $path;
-        utime @st[8, 9], $tmp if @st;
+        if (@st) {
+            chmod $st[2] & 07777, $tmp;
+            utime @st[8, 9], $tmp;
+        }
         $ok = rename $tmp, $path;
         $err = $!;
     }
@@ -458,7 +464,7 @@ sub edit_tic {
     else {
         logmsg('warn', "$tic_disp: cannot edit (" . join(', ', @what) . "): $err");
         close $fh if defined $fh && defined fileno $fh;
-        unlink $tmp;
+        unlink $tmp if defined $tmp;
     }
 }
 

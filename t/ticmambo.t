@@ -1134,11 +1134,30 @@ subtest 'AddFullname' => sub {
     setup();
     put($in, 'Длинное имя.zip', $c);
     put($in, 'f.tic', $tic);
-    mkdir catfile($dest, 'f.tic.tmp') or die $!;
-    is(run_ticmambo(AddFullname => 'Yes'), 0, 'cannot write: exit code');
+    is(run_ticmambo(AddFullname => 'Yes',
+        _preload => 'require File::Temp; no warnings; *File::Temp::tempfile = sub { die "simulated\n" }'),
+        0, 'cannot write: exit code');
     is(slurp(catfile($dest, 'f.tic')), $tic, 'cannot write: tic moved unchanged');
     ok(has($dest, 'Длинное имя.zip'), 'cannot write: file moved anyway');
-    like(log_text(), qr/f\.tic: cannot edit \(added Fullname\)/, 'cannot write: logged');
+    like(log_text(), qr/f\.tic: cannot edit \(added Fullname\): simulated/, 'cannot write: logged');
+
+    # A file in DestPath with the name of the tic plus some suffix is not
+    # taken for a temporary file.
+    setup();
+    put($dest, 'f.tic.tmp', 'data');
+    put($in, 'Длинное имя.zip', $c);
+    put($in, 'f.tic', $tic);
+    run_ticmambo(AddFullname => 'Yes');
+    is(slurp(catfile($dest, 'f.tic.tmp')), 'data', 'f.tic.tmp in DestPath untouched');
+    like(log_text(), qr/f\.tic: added Fullname/, 'tic edited anyway');
+
+    unless ($IS_WIN) {
+        setup();
+        put($in, 'Длинное имя.zip', $c);
+        chmod 0644, put($in, 'f.tic', $tic);
+        run_ticmambo(AddFullname => 'Yes');
+        is((stat catfile($dest, 'f.tic'))[2] & 07777, 0644, 'edited tic keeps its permissions');
+    }
 };
 
 subtest 'FixShortName: cases that leave the tic alone' => sub {
