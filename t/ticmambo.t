@@ -42,10 +42,16 @@ sub setup {
 
 # Runs ticmambo with the base config plus overrides, returns the exit code.
 # _preload is Perl code to run before the script, for simulations.
+# Files are aged by mtime (see age), but outside Windows the script takes
+# the age from ctime, which cannot be set; ctime is replaced with mtime
+# unless _real_ctime is set.
 # _timeout is in seconds; on timeout ticmambo is killed and undef returned.
 sub run_ticmambo {
     my (%opt) = @_;
     my $preload = delete $opt{_preload};
+    my $real_ctime = delete $opt{_real_ctime};
+    $preload = join ";\n", 'no warnings; *CORE::GLOBAL::stat = sub (;*) { my @s = CORE::stat($_[0]); $s[10] = $s[9] if @s; @s }',
+        $preload // () unless $IS_WIN || $real_ctime;
     my $timeout = delete $opt{_timeout};
     my %cfg = (
         InboundPath     => $in,
@@ -1294,21 +1300,17 @@ SKIP: {
 }
 
 subtest 'UseCreationTime' => sub {
-    # The tic is created now but its mtime is 10 days old.
-    setup();
-    my $probe = put($root, 'probe', '');
-    # The same check as in the script.
-    my $birth = $IS_WIN || $^O eq 'linux' && eval { require 'syscall.ph'; SYS_statx() }
-        && `stat -c %W '$probe' 2>/dev/null` =~ /^[1-9]/;
+    # The tic is created now but its mtime is 10 days old, as a mailer
+    # leaves it. Only modification time (No, on Windows) makes it old.
     for my $use (qw(Yes No)) {
         setup();
         put($in, 'f.tic', std_tic('none.zip', 'x'), 10);
-        run_ticmambo(UseCreationTime => $use, WaitForFileDays => 3);
-        if ($use eq 'Yes' && $birth) {
-            ok(has($in, 'f.tic'), 'Yes: age taken from creation time');
+        run_ticmambo(UseCreationTime => $use, WaitForFileDays => 3, _real_ctime => 1);
+        if ($use eq 'No' && $IS_WIN) {
+            ok(has($dest, 'f.tic'), 'No: age taken from modification time');
         }
         else {
-            ok(has($dest, 'f.tic'), "$use: age taken from modification time");
+            ok(has($in, 'f.tic'), "$use: age taken from creation or inode change time");
         }
     }
 };

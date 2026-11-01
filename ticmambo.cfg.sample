@@ -33,17 +33,18 @@ DestPath d:\fido\inbound\fecho
 ;
 ;IgnoreCase Yes
 
-; Yes - tic age (see WaitForFileDays and WaitForHiddenTicDays) is based
-; on its creation time, No - on its modification time.
-; Creation time is supported on Windows and on Linux (via statx(2), if
-; syscall.ph is available and the file system stores creation time).
-; Otherwise modification time is used. Default: Yes.
+; Which time stamp of a tic gives its age (see WaitForFileDays and
+; WaitForHiddenTicDays). Yes - its creation time. No - its modification
+; time on Windows and its inode change time (ctime) elsewhere. Creation
+; time is supported on Windows and on Linux (via statx(2), if syscall.ph is
+; available and the file system stores creation time); where it is not,
+; ctime is used. Default: Yes.
 ;
 ;UseCreationTime Yes
 
-; How many days to wait for a file that matches the tic by Crc and Size,
-; counted from the tic's creation or modification time (see
-; UseCreationTime). After that see DeleteOrphanTics. Default: 3.
+; How many days a tic waits for a file that matches its Crc and Size.
+; After that the tic is moved to DestPath without a file or deleted (see
+; DeleteOrphanTics). Default: 3.
 ;
 ;WaitForFileDays 3
 

@@ -200,7 +200,10 @@ sub age_days {
         # On Win32 Perl reports the creation time as ctime.
         $time = $IS_WIN ? $st[10] : birth_time($path);
     }
-    $time = $st[9] unless defined $time;
+    # Mailers such as binkd set mtime to the sender's file time. Outside
+    # Windows ctime is used instead: it changes when the received file is
+    # renamed into the inbound.
+    $time = $IS_WIN ? $st[9] : $st[10] unless defined $time;
     return (time - $time) / 86400;
 }
 
