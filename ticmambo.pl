@@ -144,7 +144,10 @@ sub load_config {
     my %real;
     for my $name (grep { $OPTIONS{$_}[0] eq 'dir' && defined $cfg{$_} } keys %OPTIONS) {
         die "'$name' " . disp($cfg{$name}) . " is not a directory\n" unless -d $cfg{$name};
-        $real{$name} = fc NFC(disp(abs_path($cfg{$name}) // $cfg{$name}));
+        my $real = abs_path($cfg{$name}) // $cfg{$name};
+        # abs_path does not expand short (8.3) names.
+        $real = Win32::GetLongPathName($real) // $real if $IS_WIN;
+        $real{$name} = fc NFC(disp($real));
     }
     # Files must not be moved to the directory they are taken from. Paths
     # are compared ignoring case, whatever the file system.

@@ -113,6 +113,27 @@ sub age {
     utime $t, $t, $path or die "utime $path: $!";
 }
 
+# Windows: makes $link a junction (an NTFS mount point) to the directory
+# $target, as mklink /J does. Returns false if this cannot be done.
+sub junction {
+    my ($link, $target) = @_;
+    require Win32API::File;
+    mkdir $link or return 0;
+    my $name = encode('UTF-16LE', '\\??\\' . decode(locale_fs => Win32::GetLongPathName($target)));
+    # REPARSE_DATA_BUFFER for IO_REPARSE_TAG_MOUNT_POINT, with an empty
+    # print name.
+    my $data = pack('v4', 0, length $name, length($name) + 2, 0) . $name . "\0\0" . "\0\0";
+    my $buf = pack('Vvv', 0xA0000003, length $data, 0) . $data;
+    # GENERIC_WRITE, OPEN_EXISTING,
+    # FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT.
+    my $h = Win32API::File::CreateFile($link, 0x40000000, 0, [], 3, 0x02200000, []) or return 0;
+    my $ret;
+    # FSCTL_SET_REPARSE_POINT.
+    my $ok = Win32API::File::DeviceIoControl($h, 0x000900A4, $buf, length $buf, [], 0, $ret, []);
+    Win32API::File::CloseHandle($h);
+    return $ok;
+}
+
 # Builds a tic from lines; lines are byte strings.
 sub tic_text { join("\r\n", @_) . "\r\n" }
 
@@ -1394,7 +1415,9 @@ subtest 'config errors' => sub {
         }
         my $junction = catfile($root, 'junction');
         SKIP: {
-            skip 'cannot create a junction', 1 if system(qq{mklink /J "$junction" "$in" >NUL}) != 0;
+            skip "cannot create a junction: $^E", 2 unless junction($junction, $in);
+            put($in, 'probe', '');
+            ok(-e catfile($junction, 'probe'), 'junction leads to InboundPath');
             is(run_ticmambo(DestPath => $junction), 1, 'DestPath is a junction to InboundPath');
         }
     }
