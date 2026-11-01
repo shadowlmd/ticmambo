@@ -26,7 +26,7 @@ my $SCRIPT = catfile($FindBin::Bin, '..', 'ticmambo.pl');
 my $IS_WIN = $^O eq 'MSWin32';
 my $DAY    = 86400;
 
-my ($root, $in, $dest, $corrupt, $log);
+my ($root, $in, $dest, $corrupt, $log, $stderr);
 
 # Text file name to file system bytes.
 sub fsn { encode(locale_fs => $_[0]) }
@@ -37,6 +37,7 @@ sub setup {
     $dest    = catfile($root, 'dest');
     $corrupt = catfile($root, 'corrupt');
     $log     = catfile($root, 'ticmambo.log');
+    $stderr  = catfile($root, 'stderr.txt');
     mkdir $_ or die "mkdir $_: $!" for $in, $dest, $corrupt;
 }
 
@@ -74,13 +75,11 @@ sub run_ticmambo {
         my $pre = put($root, 'preload.pl', "$preload;\n" . '$0 = shift; do $0; die $@ if $@; die "$0: $!" if $!;' . "\n");
         splice @cmd, 1, 0, $pre;
     }
-    unless ($timeout) {
-        system(@cmd);
-        return $? >> 8;
-    }
+    return run_quiet(@cmd) >> 8 unless $timeout;
     # alarm does not interrupt system(), but it does interrupt waitpid.
     my $pid = fork // die "fork: $!";
     unless ($pid) {
+        open STDERR, '>>', $stderr or die "$stderr: $!";
         exec @cmd or die "exec: $!";
     }
     my $done = eval {
@@ -94,6 +93,16 @@ sub run_ticmambo {
     kill 'KILL', $pid;
     waitpid $pid, 0;
     return undef;
+}
+
+# Runs a command like system, with its stderr appended to $stderr: it is
+# shown only if a check fails.
+sub run_quiet {
+    open my $saved, '>&', \*STDERR or die "dup STDERR: $!";
+    open STDERR, '>>', $stderr or die "$stderr: $!";
+    my $ret = system(@_);
+    open STDERR, '>&', $saved or die "restore STDERR: $!";
+    return $ret;
 }
 
 # Writes raw content to a file (name is text) and optionally makes it old.
@@ -139,7 +148,10 @@ sub slurp {
 
 sub log_text { decode('UTF-8', slurp($log) // '') }
 
-# A failed check is followed at once by the log of the run it checked.
+sub stderr_text { decode(locale => slurp($stderr) // '') }
+
+# A failed check is followed at once by the log and stderr of the run it
+# checked.
 BEGIN {
     no strict 'refs';
     no warnings 'redefine';
@@ -148,8 +160,11 @@ BEGIN {
         my $wrap = sub {
             local $Test::Builder::Level = $Test::Builder::Level + 1;
             my $ok = $orig->(@_);
-            my $text = $ok ? '' : log_text();
-            diag("ticmambo log:\n$text") if length $text;
+            unless ($ok) {
+                my ($text, $err) = (log_text(), stderr_text());
+                diag("ticmambo log:\n$text") if length $text;
+                diag("ticmambo stderr:\n$err") if length $err;
+            }
             return $ok;
         };
         Scalar::Util::set_prototype(\&$wrap, prototype $orig);
@@ -1343,7 +1358,7 @@ subtest 'config line endings' => sub {
         my $text = "\xEF\xBB\xBF; comment$eol${eol}InboundPath $in${eol}DestPath $dest$eol"
             . "CorruptTicAction Keep${eol}LogFile $log$eol";
         my $cfg = put($root, 'eol.cfg', $text);
-        is(system($^X, $SCRIPT, $cfg) >> 8, 0, "$name: config accepted");
+        is(run_quiet($^X, $SCRIPT, $cfg) >> 8, 0, "$name: config accepted");
         ok(has($dest, 'f.zip'), "$name: config applied");
 
         put($root, 'eol.cfg', $text . "TouchFiles Maybe$eol");
@@ -1362,7 +1377,7 @@ subtest 'non-ASCII paths in a UTF-8 config' => sub {
     my ($r, $d, $l) = map { decode(locale_fs => $_) } $root, $dest, $log;
     my $cfg = put($root, 'utf8.cfg', encode('UTF-8', "InboundPath $r/входящие\r\nDestPath $d\r\n"
         . "CorruptTicAction Keep\r\nLogFile $l\r\n"));
-    is(system($^X, $SCRIPT, $cfg) >> 8, 0, 'config accepted');
+    is(run_quiet($^X, $SCRIPT, $cfg) >> 8, 0, 'config accepted');
     ok(has($dest, 'f.zip') && has($dest, 'f.tic'), 'InboundPath found');
 };
 
@@ -1393,7 +1408,7 @@ subtest 'config errors' => sub {
             is(run_ticmambo(InboundPath => $long, DestPath => $short), 1, 'DestPath is InboundPath by its short name');
         }
     }
-    is(system($^X, $SCRIPT, catfile($root, 'missing.cfg')) >> 8, 1, 'missing config file');
+    is(run_quiet($^X, $SCRIPT, catfile($root, 'missing.cfg')) >> 8, 1, 'missing config file');
     is(run_ticmambo(LogLevel => undef, touchfiles => "yes", LOGLEVEL => "INFO"), 0, 'keywords and values are case insensitive');
 };
 
